@@ -229,22 +229,79 @@ class ProcessResumesTool(BaseTool):
             job_details = job_details['description']
         elif not isinstance(job_details, str):
             return "Error: Invalid job details format. Please provide either a string or a dictionary with a 'description' field."
-        """Process resumes for a specific job"""
+        
+        logger.info(f"Processing resumes with input: {job_details}")
+        
         try:
-            # Extract job ID or job role name
-            job_id_match = re.search(r"job_id\s*[:=]\s*\"?([^\"]+)\"?", job_details, re.IGNORECASE)
-            job_role_match = re.search(r"job_role_name\s*[:=]\s*\"?([^\"]+)\"?", job_details, re.IGNORECASE) or \
-                            re.search(r"role\s*[:=]\s*\"?([^\"]+)\"?", job_details, re.IGNORECASE) or \
-                            re.search(r"job title\s*[:=]\s*\"?([^\"]+)\"?", job_details, re.IGNORECASE)
+            # Extract job ID or job role name with more flexible patterns
+            # First look for explicit job ID
+            job_id_match = re.search(r"(?:job_id|job id|id)[\s:=]*[\"\']?([^\"\'\n]+?)[\"\']?(?:\s|$)", job_details, re.IGNORECASE)
             
+            # Then look for role mentions in various formats
+            job_role_patterns = [
+                # Structured formats
+                r"job_role_name\s*[:=]\s*[\"\']?([^\"\'\n]+?)[\"\']?(?:\s|$)",
+                r"role\s*[:=]\s*[\"\']?([^\"\'\n]+?)[\"\']?(?:\s|$)",
+                r"job title\s*[:=]\s*[\"\']?([^\"\'\n]+?)[\"\']?(?:\s|$)",
+                r"position\s*[:=]\s*[\"\']?([^\"\'\n]+?)[\"\']?(?:\s|$)",
+                # Natural language formats
+                r"(?:for|role|position|job)[\s:]*(?:the\s+)?([a-zA-Z0-9\s]+?(?:engineer|specialist|developer|analyst|manager|designer|scientist|architect|consultant|director))(?:\s|$|role|position)",
+                r"(?:process|analyze|evaluate)\s+(?:resumes|candidates)\s+(?:for|related to)\s+(?:the\s+)?([a-zA-Z0-9\s]+?(?:engineer|specialist|developer|analyst|manager|designer|scientist|architect|consultant|director))(?:\s|$)",
+                r"(?:process|analyze|evaluate)\s+([a-zA-Z0-9\s]+?(?:engineer|specialist|developer|analyst|manager|designer|scientist|architect|consultant|director))\s+(?:resumes|candidates)(?:\s|$)"
+            ]
+            
+            job_role = None
+            for pattern in job_role_patterns:
+                match = re.search(pattern, job_details, re.IGNORECASE)
+                if match:
+                    job_role = match.group(1).strip()
+                    logger.info(f"Found job role using pattern: {pattern}")
+                    break
+            
+            # Extract job ID if provided
             job_id = job_id_match.group(1).strip() if job_id_match else None
-            job_role = job_role_match.group(1).strip() if job_role_match else None
+            
+            # If no explicit job role found, try to extract from general text
+            if not job_role:
+                # Look for common job title patterns in the text
+                common_job_titles = [
+                    "software engineer", "data scientist", "product manager", 
+                    "ui designer", "ux designer", "frontend developer",
+                    "backend developer", "fullstack developer", "devops engineer",
+                    "qa engineer", "machine learning engineer", "ai engineer",
+                    "llm specialist", "genai specialist", "ml engineer",
+                    "solutions architect", "project manager", "scrum master",
+                    "product owner", "technical writer", "data analyst"
+                ]
+                
+                # Extract the job title if it appears in the text
+                for title in common_job_titles:
+                    if title.lower() in job_details.lower():
+                        job_role = title.title()
+                        logger.info(f"Found job role from common titles: {job_role}")
+                        break
             
             # If no job ID but have job role, try to find the job
             if not job_id and job_role:
-                # This is a simplified implementation - in production you'd use a more robust search
+                logger.info(f"Searching for job with role: {job_role}")
+                # Get all jobs and search for matches
                 all_jobs = JobService.get_all_job_postings()
-                matching_jobs = [job for job in all_jobs if job_role.lower() in job.job_role_name.lower()]
+                
+                # First try exact title match
+                matching_jobs = [job for job in all_jobs if job_role.lower() == job.job_role_name.lower()]
+                
+                # If no exact match, try contains match
+                if not matching_jobs:
+                    matching_jobs = [job for job in all_jobs if job_role.lower() in job.job_role_name.lower()]
+                    
+                # If still no match, try fuzzy matching - look for common words
+                if not matching_jobs:
+                    job_role_words = set(job_role.lower().split())
+                    for job in all_jobs:
+                        job_name_words = set(job.job_role_name.lower().split())
+                        # If at least 50% of words match
+                        if job_role_words and job_name_words and len(job_role_words.intersection(job_name_words)) / len(job_role_words) >= 0.5:
+                            matching_jobs.append(job)
                 
                 if matching_jobs:
                     job_id = matching_jobs[0].job_id
@@ -252,9 +309,22 @@ class ProcessResumesTool(BaseTool):
                 else:
                     return f"No job found with role name containing '{job_role}'. Please provide a valid job ID or create a job first."
             
-            # If still no job ID, return an error
+            # If still no job ID, return an error with more details
             if not job_id:
-                return "Please provide a job ID or job role name to process resumes."
+                logger.error(f"No job found matching: '{job_role}' from input: '{job_details}'")
+                
+                # List available jobs to help the user
+                all_jobs = JobService.get_all_job_postings()
+                job_list = "\n".join([f"- {job.job_role_name} (ID: {job.job_id})" for job in all_jobs[:5]])
+                
+                if all_jobs:
+                    available_jobs = f"\n\nAvailable jobs:\n{job_list}"
+                    if len(all_jobs) > 5:
+                        available_jobs += f"\n...and {len(all_jobs) - 5} more"
+                else:
+                    available_jobs = "\n\nThere are no jobs in the system. Please create a job first."
+                
+                return f"No job found matching '{job_role}'. Please provide a valid job ID or job role name.{available_jobs}"
             
             # Process the resumes
             logger.info(f"Processing resumes for job ID: {job_id}")
