@@ -29,13 +29,22 @@ class JobService:
             
             # Create a new document
             job_data = job_posting.dict()
+            
+            # Set defaults if not provided
+            if "status" not in job_data or not job_data["status"]:
+                job_data["status"] = "active"
+                
+            if "location" not in job_data or not job_data["location"]:
+                job_data["location"] = "in office"
+            
+            # Set id and job_id to be the same
             job_data["job_id"] = job_id
             
-            # Add the document to the collection using FirestoreDB
-            doc_id = FirestoreDB.create_document(JobService.COLLECTION_NAME, job_data)
+            # Add the document to the collection with the generated ID as the document ID
+            FirestoreDB.create_document_with_id(JobService.COLLECTION_NAME, job_id, job_data)
             
-            # Update job_id with the document ID
-            job_data["job_id"] = doc_id
+            # Add id field (same as job_id)
+            job_data["id"] = job_id
             
             return JobPostingResponse(**job_data)
         except Exception as e:

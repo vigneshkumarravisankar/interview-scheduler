@@ -135,6 +135,30 @@ class FirestoreDB:
             return []
     
     @staticmethod
+    def create_document_with_id(collection_name: str, doc_id: str, document_data: Dict[str, Any]) -> str:
+        """
+        Create a new document with a specific ID in a collection
+        Returns the document ID
+        """
+        try:
+            # Set the data with the provided ID
+            doc_ref = db.collection(collection_name).document(doc_id)
+            doc_data = document_data.copy()
+            
+            # Ensure the ID is included in the document data
+            if "id" not in doc_data:
+                doc_data["id"] = doc_id
+                
+            # Write to Firestore
+            doc_ref.set(doc_data)
+            print(f"Document created in Firestore with specific ID: {doc_id} (collection: {collection_name})")
+            return doc_id
+        except Exception as e:
+            print(f"Error in create_document_with_id: {e}")
+            # Return the provided ID anyway
+            return doc_id
+    
+    @staticmethod
     def create_document(collection_name: str, document_data: Dict[str, Any]) -> str:
         """
         Create a new document in a collection

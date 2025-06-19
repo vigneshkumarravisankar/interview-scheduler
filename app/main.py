@@ -5,8 +5,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from firebase_admin import get_app
+import socketio
 
-from app.api import job_routes, calendar_routes, auth_routes, candidate_routes, interview_routes, response_routes, final_selection_routes, chatbot_routes
+from app.api import job_routes, calendar_routes, auth_routes, candidate_routes, interview_routes, response_routes, final_selection_routes, chatbot_routes, agent_routes
 from app.agents.interview_agent import InterviewAgentSystem, create_interview_crew
 
 # Load environment variables
@@ -47,6 +48,10 @@ app.include_router(interview_routes.router)
 app.include_router(response_routes.router)
 app.include_router(final_selection_routes.router)
 app.include_router(chatbot_routes.router)
+app.include_router(agent_routes.router)
+
+# Mount the Socket.IO app
+app.mount("/socket.io", agent_routes.socket_app)
 
 # Initialize interview agent system
 interview_system = InterviewAgentSystem()
@@ -62,6 +67,11 @@ def root():
 def chatbot_demo():
     """Serve the chatbot demo page"""
     return FileResponse("app/static/chatbot_demo.html")
+
+@app.get("/agent")
+def agent_interface():
+    """Serve the agent interface page"""
+    return FileResponse("app/static/agent_interface.html")
 
 
 @app.get("/health")

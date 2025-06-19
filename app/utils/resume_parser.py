@@ -84,7 +84,9 @@ def extract_candidate_data_with_llm(resume_text: str, job_data: Dict[str, Any]) 
         system_prompt = """
         You are an expert resume parser. Extract structured information from the resume text provided.
         Only extract information that is explicitly stated in the resume. If information is not available, 
-        leave the field empty or indicate 'Not specified'.
+        leave the field empty ("").
+        
+        Return the data EXACTLY in the JSON format specified, with no deviations, additions, or explanations.
         """
         
         # Prepare user prompt with resume text and required structure
@@ -95,38 +97,46 @@ def extract_candidate_data_with_llm(resume_text: str, job_data: Dict[str, Any]) 
         - Job Description: {job_data.get('job_description', 'Unknown')}
         - Required Experience: {job_data.get('years_of_experience_needed', 'Unknown')}
         
-        Please extract the following information from the resume text and format it as JSON:
+        Extract information from the resume text below and format it EXACTLY according to this JSON schema:
         
-        1. Full name of the candidate
-        2. Email address
-        3. Phone number
-        4. Total years of professional experience (provide best estimate if not explicit)
-        5. Technical skills (as a comma-separated list)
-        6. Previous companies worked at, with for each:
-           - Company name
-           - Years at the company
-           - Job responsibilities (brief summary)
+        {{
+          "ai_fit_score": "",
+          "created_at": "",
+          "email": "",
+          "id": "",
+          "interview_time": null,
+          "job_description": "{job_data.get('job_description', '')}",
+          "job_id": "{job_data.get('job_id', '')}",
+          "job_role_name": "{job_data.get('job_role_name', '')}",
+          "name": "",
+          "phone_no": "",
+          "previous_companies": [
+            {{
+              "name": "",
+              "job_responsibilities": "",
+              "years": ""
+            }}
+          ],
+          "resume_url": "",
+          "technical_skills": "",
+          "total_experience_in_years": "",
+          "updated_at": "",
+          "years_of_experience_needed": "{job_data.get('years_of_experience_needed', '')}"
+        }}
         
         Here is the resume text:
         ---
         {resume_text}
         ---
         
-        Return ONLY valid JSON (no explanations or commentary) with the following structure:
-        {{
-            "name": "",
-            "email": "",
-            "phone_no": "",
-            "total_experience_in_years": "",
-            "technical_skills": "",
-            "previous_companies": [
-                {{
-                    "name": "",
-                    "years": "",
-                    "job_responsibilities": ""
-                }}
-            ]
-        }}
+        IMPORTANT INSTRUCTIONS:
+        1. Extract as many previous companies as are mentioned in the resume
+        2. Format technical skills as a comma-separated list
+        3. Leave fields you cannot extract as empty strings
+        4. Do NOT fill in the ai_fit_score, created_at, id, resume_url, or updated_at fields
+        5. Return ONLY the valid JSON with no additional text, explanations, or commentary
+        6. Make sure your JSON is properly formatted with all required fields
+        7. For fields not found in the resume, use empty strings ("") rather than stating "not specified"
         """
         
         # Call the LLM to parse the resume

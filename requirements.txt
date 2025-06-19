@@ -5,6 +5,7 @@ pydantic==2.9.2
 pydantic[email]==2.9.2
 email-validator==2.0.0
 python-dotenv==1.0.1
+python-socketio==5.11.0
 
 # Firebase
 firebase-admin==6.9.0
