@@ -227,7 +227,9 @@ class CandidateService:
             
             for resume in resumes:
                 resume_name = resume.get('name', '')
-                resume_url = resume.get('url', '')
+                # Generate an authenticated URL for the resume instead of using the direct GCS URL
+                authenticated_url = get_resume_url(resume_name)
+                resume_url = authenticated_url  # Use the authenticated URL instead of the direct GCS URL
                 
                 # Skip if already processed
                 existing_candidates = FirestoreDB.execute_complex_query(
@@ -261,7 +263,8 @@ class CandidateService:
                     fit_score = calculate_fit_score(candidate_data, job_data.dict())
                     
                     # Update the candidate data with information that the LLM doesn't provide
-                    candidate_data["resume_url"] = resume_url
+                    # Always use authenticated URL for better security and access control
+                    candidate_data["resume_url"] = authenticated_url
                     candidate_data["ai_fit_score"] = str(fit_score)
                     
                     # Set timestamps
@@ -298,7 +301,7 @@ class CandidateService:
                         total_experience_in_years=candidate_data.get('total_experience_in_years', ''),
                         technical_skills=candidate_data.get('technical_skills', ''),
                         previous_companies=previous_companies,
-                        resume_url=resume_url,
+                        resume_url=authenticated_url,  # Use authenticated URL consistently
                         ai_fit_score=str(fit_score)
                     )
                     
