@@ -1,0 +1,8 @@
+envi/
+.env
+.env.example
+app/config/gcs_service_account.json
+app/config/gmail_credentials.json
+app/config/service_account.json
+app/config/gmail_token.json
+app/working-interview-scheduler/credentials.json
