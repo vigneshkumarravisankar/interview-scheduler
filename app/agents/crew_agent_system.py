@@ -184,13 +184,13 @@ class CreateJobPostingTool(BaseTool):
                 location=parsed_job_data["location"],
                 status=parsed_job_data["status"]
             )
-            
-            # Save to database
+             
+            # Save to database  
             result = JobService.create_job_posting(job_posting)
             
             # Format response
             response = f"""
-Job posting created successfully!
+ Job posting created successfully!
 
 Job ID: {result.job_id}
 Role: {result.job_role_name}
