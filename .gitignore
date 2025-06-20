@@ -1,9 +1,98 @@
-envi/
+# Environment variables and credentials
 .env
-.env.example
-app/config/gcs_service_account.json
-app/config/gmail_credentials.json
+.env.local
+.env.development
+.env.production
+credentials.json
+*_credentials.json
+*_service_account.json
+*_token.json
+*.pem
+*.p12
+*.pfx
+
+# Firebase config and service account key
 app/config/service_account.json
-app/config/gmail_token.json
+app/config/firebase-service-account.json
+app/config/firebase_service_account.json
+app/config/gcs_service_account.json
 app/config/calendar_service_account.json
-app/working-interview-scheduler/credentials.json
+app/config/gmail_credentials.json
+*/firebase-config.js
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+env/
+envi/
+ENV/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+.nox/
+
+# Database files
+*.sqlite3
+*.db
+
+# Temporary files
+tmp/
+temp/
+
+# Node (for any frontend components)
+node_modules/
+package-lock.json
+
+# Build artifacts
+*.pyc
+*.pyo
+*.mo
+*.pot
+*.class
+*.jar
+*.war
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# System Files
+Thumbs.db

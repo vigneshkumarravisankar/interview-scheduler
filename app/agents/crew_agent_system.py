@@ -5,15 +5,22 @@ import os
 import re
 from typing import Dict, Any, List, Optional
 import uuid
+import random
+import string
 from datetime import datetime
 import logging
 import json
 
+from datetime import datetime
 from pydantic import BaseModel, Field
 from openai import OpenAI
 from crewai import Agent, Task, Crew, Process
 from crewai.tools import BaseTool
 from langchain.chat_models import ChatOpenAI
+from app.services.interview_shortlist_service import InterviewShortlistService
+from app.services.interview_core_service import InterviewCoreService
+from app.utils.calendar_service import CalendarService, create_calendar_event
+from app.utils.email_notification import send_interview_notification
 from app.services.job_service import JobService
 from app.services.candidate_service import CandidateService
 from app.schemas.job_schema import JobPostingCreate, JobPostingResponse
@@ -363,6 +370,287 @@ class ProcessResumesTool(BaseTool):
         except Exception as e:
             logger.error(f"Error processing resumes: {e}")
             return f"Failed to process resumes: {str(e)}"
+    
+class ShortlistCandidatesTool(BaseTool):
+    name: str = "ShortlistCandidates"
+    description: str = "Shortlist top N candidates for interviews based on AI fit scores and schedule interviews"
+    
+    # Define schema for the tool
+    class InputSchema(BaseModel):
+        job_id: str = Field(description="ID of the job to shortlist candidates for")
+        number_of_candidates: int = Field(description="Number of candidates to shortlist", default=3)
+        number_of_rounds: int = Field(description="Number of interview rounds", default=2)
+        specific_time: str = Field(description="Specific time for interviews (optional, format: 'YYYY-MM-DD HH:MM')", default="")
+    
+    # Set the argument schema
+    args_schema = InputSchema
+    
+    def _run(self, job_id: str, number_of_candidates: int = 3, number_of_rounds: int = 2, specific_time: str = "") -> str:
+        """
+        Shortlist candidates for interviews based on AI fit scores and schedule interviews
+        
+        Args:
+            job_id: ID of the job to shortlist candidates for
+            number_of_candidates: Number of candidates to shortlist (default: 3)
+            number_of_rounds: Number of interview rounds (default: 2)
+            specific_time: Specific time for interviews (optional)
+        
+        Returns:
+            String with shortlisting results
+        """
+        try:
+            # Log the parameters
+            logger.info(f"Shortlisting candidates for job {job_id}, top {number_of_candidates} candidates, {number_of_rounds} rounds")
+            
+            # Check if specific time was provided
+            if specific_time:
+                logger.info(f"Specific time requested: {specific_time}")
+            
+            # Shortlist candidates using the service
+            shortlisted, created_records = InterviewShortlistService.shortlist_candidates(
+                job_id=job_id,
+                number_of_candidates=number_of_candidates,
+                no_of_interviews=number_of_rounds
+            )
+            
+            # Check if any candidates were shortlisted
+            if not shortlisted:
+                return "No candidates were found or shortlisted for this job. Please process some resumes first."
+                
+            # Format the response
+            if not created_records:
+                return f"Shortlisted {len(shortlisted)} candidates, but failed to create interview records."
+            
+            response = f"Successfully shortlisted {len(shortlisted)} candidates for job ID: {job_id}\n\n"
+            
+            # Add details about the shortlisted candidates
+            for i, candidate in enumerate(shortlisted):
+                response += f"Candidate {i+1}: {candidate.get('name')}\n"
+                response += f"   Email: {candidate.get('email')}\n"
+                response += f"   AI Fit Score: {candidate.get('ai_fit_score')}\n"
+                response += f"   Experience: {candidate.get('total_experience_in_years')}\n"
+                
+                # Add interview details from created records
+                for record in created_records:
+                    if record.get('candidate_id') == candidate.get('id'):
+                        response += f"   Interview Rounds: {record.get('no_of_interviews')}\n"
+                        response += f"   Status: {record.get('status')}\n"
+                        response += "   Round Details:\n"
+                        
+                        # Add details for each interview round
+                        for i, feedback in enumerate(record.get('feedback', [])):
+                            round_num = i + 1
+                            interviewer = feedback.get('interviewer_name')
+                            
+                            response += f"      Round {round_num}: with {interviewer}\n"
+                            
+                            # Show scheduling details for the first round
+                            if i == 0 and feedback.get('scheduled_event'):
+                                start_time = feedback.get('scheduled_event', {}).get('start', {}).get('dateTime', 'TBD')
+                                
+                                # Format the datetime for readability
+                                if start_time != 'TBD':
+                                    try:
+                                        # Convert ISO format to datetime object
+                                        dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+                                        # Format for display
+                                        start_time = dt.strftime("%A, %B %d, %Y at %I:%M %p")
+                                    except Exception:
+                                        # Keep original if parsing fails
+                                        pass
+                                
+                                response += f"         Scheduled: {start_time}\n"
+                                response += f"         Meet Link: {feedback.get('meet_link', 'TBD')}\n"
+                        
+                response += "\n"
+                
+            return response
+            
+        except Exception as e:
+            logger.error(f"Error shortlisting candidates: {e}")
+            return f"Error shortlisting candidates: {str(e)}"
+            
+class RescheduleInterviewTool(BaseTool):
+    name: str = "RescheduleInterview"
+    description: str = "Reschedule an interview for a candidate at a different time"
+    
+    # Define schema for the tool
+    class InputSchema(BaseModel):
+        interview_id: str = Field(description="ID of the interview record to reschedule")
+        round_index: int = Field(description="Index of the round to reschedule (0-based)")
+        new_time: str = Field(description="New time for the interview (format: 'YYYY-MM-DD HH:MM')")
+        reason: str = Field(description="Reason for rescheduling", default="Scheduling conflict")
+    
+    # Set the argument schema
+    args_schema = InputSchema
+    
+    def _run(self, interview_id: str, round_index: int, new_time: str, reason: str = "Scheduling conflict") -> str:
+        """
+        Reschedule an interview at a different time
+        
+        Args:
+            interview_id: ID of the interview record to reschedule
+            round_index: Index of the round to reschedule (0-based)
+            new_time: New time for the interview (format: 'YYYY-MM-DD HH:MM')
+            reason: Reason for rescheduling
+        
+        Returns:
+            String with rescheduling results
+        """
+        try:
+            # Log the parameters
+            logger.info(f"Rescheduling interview {interview_id}, round {round_index} to {new_time}, reason: {reason}")
+            
+            # Get the interview record
+            interview_record = InterviewCoreService.get_interview_candidate(interview_id)
+            
+            if not interview_record:
+                return f"Interview record with ID {interview_id} not found."
+                
+            # Verify the round index is valid
+            feedback_array = interview_record.get('feedback', [])
+            if round_index < 0 or round_index >= len(feedback_array):
+                return f"Invalid round index {round_index}. Valid range: 0-{len(feedback_array)-1}"
+            
+            # Get the current round details
+            round_details = feedback_array[round_index]
+            interviewer_name = round_details.get('interviewer_name', 'Unknown')
+            
+            # Parse the new time
+            try:
+                new_datetime = datetime.strptime(new_time, "%Y-%m-%d %H:%M")
+                start_time = new_datetime
+                end_time = new_datetime.replace(hour=new_datetime.hour + 1)  # 1 hour interview
+                
+                # Format dates in ISO format with timezone
+                start_iso = start_time.strftime("%Y-%m-%dT%H:%M:%S+05:30")
+                end_iso = end_time.strftime("%Y-%m-%dT%H:%M:%S+05:30")
+                
+                # Format for display
+                formatted_time = start_time.strftime("%I%p").lstrip('0')  # e.g., "10AM"
+            except ValueError:
+                return f"Invalid time format. Please use the format 'YYYY-MM-DD HH:MM'"
+            
+            # Update the calendar event if there is one
+            old_event_id = round_details.get('scheduled_event', {}).get('id')
+            if old_event_id:
+                # Delete the old event
+                CalendarService.delete_event(old_event_id)
+            
+            # Get candidate and interviewer details for the new event
+            candidate_name = interview_record.get('candidate_name', 'Candidate')
+            candidate_email = interview_record.get('candidate_email', 'candidate@example.com')
+            interviewer_email = round_details.get('interviewer_email', 'interviewer@example.com')
+            job_role = interview_record.get('job_role', 'Unknown Position')
+            round_type = round_details.get('round_type', f"Round {round_index+1}")
+            
+            # Create event summary and description
+            summary = f"Interview: {candidate_name} with {interviewer_name} - Round {round_index+1} ({round_type})"
+            description = f"""
+            RESCHEDULED INTERVIEW for {candidate_name} ({candidate_email})
+            Job: {job_role}
+            Round: {round_index+1} - {round_type} Round
+            Interviewer: {interviewer_name} ({interviewer_email})
+            
+            Reason for rescheduling: {reason}
+            
+            Please join using the Google Meet link at the scheduled time.
+            """
+            
+            # Create a new calendar event
+            calendar_event = create_calendar_event(
+                summary=summary,
+                description=description,
+                start_time=start_iso,
+                end_time=end_iso,
+                attendees=[
+                    {"email": interviewer_email},
+                    {"email": candidate_email}
+                ]
+            )
+            
+            # Extract event details
+            if calendar_event:
+                event_id = calendar_event.get('id', '')
+                meet_link = calendar_event.get('hangoutLink', calendar_event.get('manual_meet_link', ''))
+                html_link = calendar_event.get('htmlLink', '')
+            else:
+                # If calendar event creation failed, create dummy data
+                event_id = ''.join(random.choices(string.ascii_letters + string.digits, k=20))
+                meet_link = f"https://meet.google.com/{CalendarService.generate_meet_code()}"
+                html_link = f"https://calendar.google.com/calendar/event?eid=mock-event"
+            
+            # Update the round details
+            round_details['scheduled_time'] = formatted_time
+            round_details['meet_link'] = meet_link
+            round_details['scheduled_event'] = {
+                "end": {
+                    "dateTime": end_iso,
+                    "timeZone": "Asia/Kolkata"
+                },
+                "start": {
+                    "dateTime": start_iso,
+                    "timeZone": "Asia/Kolkata"
+                },
+                "htmlLink": html_link,
+                "id": event_id
+            }
+            
+            # Update the feedback array
+            feedback_array[round_index] = round_details
+            interview_record['feedback'] = feedback_array
+            
+            # Save the updated record
+            InterviewCoreService.update_interview_candidate(interview_id, interview_record)
+            
+            # Send email notification about the rescheduling
+            try:
+                send_interview_notification(
+                    candidate_name=candidate_name,
+                    candidate_email=candidate_email,
+                    interviewer_name=interviewer_name,
+                    interviewer_email=interviewer_email,
+                    job_title=job_role,
+                    interview_time=formatted_time,
+                    interview_date=start_time.strftime("%A, %B %d, %Y"),
+                    meet_link=meet_link,
+                    round_number=round_index+1,
+                    round_type=round_type,
+                    is_rescheduled=True,
+                    reschedule_reason=reason
+                )
+                
+                return f"""
+Successfully rescheduled the interview for {candidate_name} with {interviewer_name}.
+
+New Interview Details:
+- Date: {start_time.strftime("%A, %B %d, %Y")}
+- Time: {formatted_time}
+- Meet Link: {meet_link}
+- Calendar Link: {html_link if html_link else "Not available"}
+
+Email notifications have been sent to:
+- {candidate_email}
+- {interviewer_email}
+"""
+            except Exception as e:
+                logger.error(f"Error sending email notification: {e}")
+                return f"""
+Successfully rescheduled the interview for {candidate_name} with {interviewer_name}, but failed to send email notifications.
+
+New Interview Details:
+- Date: {start_time.strftime("%A, %B %d, %Y")}
+- Time: {formatted_time}
+- Meet Link: {meet_link}
+"""
+        
+        except Exception as e:
+            logger.error(f"Error rescheduling interview: {e}")
+            return f"Error rescheduling interview: {str(e)}"
+    
+    # Schema already defined above
+    
+# [This duplicate _run method for ProcessResumesTool was removed]
 
 class CrewAgentSystem:
     """CrewAI-based agent system for interview scheduling"""
@@ -379,6 +667,8 @@ class CrewAgentSystem:
         # Create tools
         job_creation_tool = CreateJobPostingTool()
         resume_processing_tool = ProcessResumesTool()
+        shortlist_tool = ShortlistCandidatesTool()
+        reschedule_tool = RescheduleInterviewTool()
         
         # Create agents with specialized roles
         self.job_analyzer = Agent(
@@ -418,7 +708,7 @@ class CrewAgentSystem:
             verbose=True,
             allow_delegation=True,
             llm=llm,
-            tools=[]
+            tools=[shortlist_tool, reschedule_tool]
         )
         
         # Create the crew
@@ -441,8 +731,186 @@ class CrewAgentSystem:
         Returns:
             Dictionary containing the response and thought process
         """
+        # Check if query is related to shortlisting candidates
+        if any(phrase in query.lower() for phrase in ["shortlist", "schedule interviews", "schedule candidates", "select top"]):
+            # Direct shortlisting
+            shortlisting_thought = {
+                "agent": "Interview Scheduling Coordinator",
+                "thought": f"Shortlisting candidates based on: {query}",
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Extract job ID from query if present
+            job_id_match = re.search(r"job_id\s*[:=]\s*[\"\']?([^\"\'\s]+)[\"\']?", query, re.IGNORECASE)
+            job_id = job_id_match.group(1) if job_id_match else None
+            
+            if not job_id:
+                job_role_match = re.search(r"(?:for|role)\s+(?:the\s+)?([a-zA-Z0-9\s]+?(?:role|position))", query, re.IGNORECASE)
+                job_role = job_role_match.group(1) if job_role_match else None
+                
+                if job_role:
+                    # Try to find job ID based on role
+                    all_jobs = JobService.get_all_job_postings()
+                    matching_jobs = [job for job in all_jobs if job_role.lower() in job.job_role_name.lower()]
+                    if matching_jobs:
+                        job_id = matching_jobs[0].job_id
+            
+            # Extract number of candidates
+            num_candidates_match = re.search(r"(?:top|shortlist)\s+(\d+)\s+candidates", query, re.IGNORECASE)
+            num_candidates = int(num_candidates_match.group(1)) if num_candidates_match else 3
+            
+            # Extract number of rounds
+            num_rounds_match = re.search(r"(\d+)\s+(?:rounds|interviews)", query, re.IGNORECASE)
+            num_rounds = int(num_rounds_match.group(1)) if num_rounds_match else 2
+            
+            # Create a task for shortlisting
+            shortlist_task = Task(
+                description=f"""
+                Shortlist candidates for job ID: {job_id if job_id else "Need to extract from query"}
+                Based on the following request:
+                
+                {query}
+                
+                Use the ShortlistCandidates tool to select the top candidates with highest AI fit scores
+                and schedule them for interviews.
+                
+                Number of candidates to shortlist: {num_candidates}
+                Number of interview rounds: {num_rounds}
+                
+                Please extract any specific time preferences from the request if mentioned.
+                """,
+                expected_output="List of shortlisted candidates with scheduled interview details",
+                agent=self.scheduler
+            )
+            
+            # Create a temporary crew for this task
+            shortlist_crew = Crew(
+                agents=[self.scheduler],
+                tasks=[shortlist_task],
+                verbose=True,
+                process=Process.sequential
+            )
+            
+            try:
+                # Execute the shortlisting
+                crew_result = shortlist_crew.kickoff()
+                
+                # Convert CrewOutput to string
+                if hasattr(crew_result, 'raw'):
+                    result = crew_result.raw
+                elif hasattr(crew_result, 'result'):
+                    result = crew_result.result
+                else:
+                    result = str(crew_result)
+                
+                completion_thought = {
+                    "agent": "Interview Scheduling Coordinator",
+                    "thought": "Candidate shortlisting completed successfully",
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+                return {
+                    "response": result,
+                    "thought_process": [shortlisting_thought, completion_thought],
+                    "primary_agent": "Interview Scheduling Coordinator",
+                    "session_id": session_id
+                }
+            except Exception as e:
+                logger.error(f"Error during candidate shortlisting: {e}")
+                return {
+                    "response": f"Error shortlisting candidates: {str(e)}",
+                    "thought_process": [
+                        shortlisting_thought,
+                        {
+                            "agent": "System",
+                            "thought": f"Error: {str(e)}",
+                            "timestamp": datetime.now().isoformat()
+                        }
+                    ],
+                    "primary_agent": "Interview Scheduling Coordinator",
+                    "session_id": session_id
+                }
+
+        # Check if query is related to rescheduling
+        elif any(phrase in query.lower() for phrase in ["reschedule", "change interview time", "postpone interview"]):
+            # Direct rescheduling
+            reschedule_thought = {
+                "agent": "Interview Scheduling Coordinator",
+                "thought": f"Rescheduling interview based on: {query}",
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Create a task for rescheduling
+            reschedule_task = Task(
+                description=f"""
+                Reschedule an interview based on the following request:
+                
+                {query}
+                
+                Use the RescheduleInterview tool to change the interview time.
+                
+                You need to extract:
+                1. Interview ID (if provided)
+                2. Round index/number
+                3. New time preference
+                4. Reason for rescheduling
+                
+                If interview ID is not explicitly provided, you'll need to identify it from context.
+                """,
+                expected_output="Confirmation of rescheduled interview with new details",
+                agent=self.scheduler
+            )
+            
+            # Create a temporary crew for this task
+            reschedule_crew = Crew(
+                agents=[self.scheduler],
+                tasks=[reschedule_task],
+                verbose=True,
+                process=Process.sequential
+            )
+            
+            try:
+                # Execute the rescheduling
+                crew_result = reschedule_crew.kickoff()
+                
+                # Convert CrewOutput to string
+                if hasattr(crew_result, 'raw'):
+                    result = crew_result.raw
+                elif hasattr(crew_result, 'result'):
+                    result = crew_result.result
+                else:
+                    result = str(crew_result)
+                
+                completion_thought = {
+                    "agent": "Interview Scheduling Coordinator",
+                    "thought": "Interview rescheduling completed successfully",
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+                return {
+                    "response": result,
+                    "thought_process": [reschedule_thought, completion_thought],
+                    "primary_agent": "Interview Scheduling Coordinator",
+                    "session_id": session_id
+                }
+            except Exception as e:
+                logger.error(f"Error during interview rescheduling: {e}")
+                return {
+                    "response": f"Error rescheduling interview: {str(e)}",
+                    "thought_process": [
+                        reschedule_thought,
+                        {
+                            "agent": "System",
+                            "thought": f"Error: {str(e)}",
+                            "timestamp": datetime.now().isoformat()
+                        }
+                    ],
+                    "primary_agent": "Interview Scheduling Coordinator",
+                    "session_id": session_id
+                }
+            
         # Check if query is related to processing resumes
-        if any(phrase in query.lower() for phrase in ["process resumes", "process candidates", "analyze resumes", "evaluate candidates", "screen candidates"]):
+        elif any(phrase in query.lower() for phrase in ["process resumes", "process candidates", "analyze resumes", "evaluate candidates", "screen candidates"]):
             # Direct resume processing
             resume_processing_thought = {
                 "agent": "Candidate Screening Specialist",
