@@ -8,6 +8,7 @@ from firebase_admin import firestore
 
 from app.schemas.chatbot_schema import ChatRequest, ChatResponse
 from app.services.chatbot_service import ChatbotService
+from app.services.chatbot_service_enhanced import ChatbotServiceEnhanced
 from app.database.firebase_db import FirestoreDB
 
 
@@ -34,6 +35,7 @@ async def execute_query(request: dict):
     - Job postings (create, get, list)
     - Candidates (process resumes, get candidates for job)
     - Interviews (scheduling, feedback, shortlisting)
+    - Can directly connect to specialized agents for complex tasks
     
     This endpoint is optimized for performance and direct API execution.
     """
@@ -69,12 +71,21 @@ async def execute_query(request: dict):
             except Exception as history_error:
                 print(f"Error fetching chat history: {history_error}")
         
-        # Generate response and execute API action in one step
-        response = ChatbotService.generate_response(
-            message=message,
-            conversation_id=sessionId,
-            context={"chat_history": chat_history}
-        )
+        # Use the enhanced chatbot service which connects directly to specialized agents
+        try:
+            response = ChatbotServiceEnhanced.generate_response(
+                message=message,
+                conversation_id=sessionId,
+                context={"chat_history": chat_history}
+            )
+        except Exception as enhanced_error:
+            print(f"Enhanced chatbot service failed: {enhanced_error}. Falling back to standard service.")
+            # Fall back to original service if enhanced version fails
+            response = ChatbotService.generate_response(
+                message=message,
+                conversation_id=sessionId,
+                context={"chat_history": chat_history}
+            )
         
         # Store chat history
         try:
