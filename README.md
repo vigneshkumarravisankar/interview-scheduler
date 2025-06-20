@@ -1,121 +1,157 @@
 # Interview Scheduler Agent
 
-An AI-powered interview scheduling system built with FastAPI, CrewAI, LangGraph, and Firebase.
+A sophisticated interview scheduling system powered by AI agents (CrewAI + LangGraph) to automate job posting management, candidate screening, interview planning, and scheduling.
 
-## Overview
+## 🚀 Features
 
-This application helps with creating job postings and managing the interview process using AI agents. The system includes:
+- **AI-Powered Job Analysis**: Analyze job postings to extract key requirements and create ideal candidate profiles.
+- **Intelligent Candidate Screening**: Evaluate candidates against job requirements and rank by fit score.
+- **Automated Interview Planning**: Generate tailored interview plans with rounds and questions.
+- **Smart Interview Scheduling**: Handle complex interview scheduling with calendar integration.
+- **Multiple Agent Architectures**: 
+  - CrewAI-based agents for collaborative reasoning
+  - LangGraph-based agents for stateful workflows
+- **Integration Ready**:
+  - Google Calendar integration
+  - Firebase database storage
+  - PDF resume parsing
+  - Email notifications
 
-- Job posting management (create, read, update, delete)
-- AI-powered interview question generation based on job requirements
-- Candidate evaluation using AI agents
-- Interview scheduling capabilities
-- Integration with Firebase for data storage
+## 🛠️ Technology Stack
 
-## Technology Stack
+- **Backend Framework**: FastAPI
+- **Database**: Firebase Firestore
+- **AI/ML**: OpenAI GPT models, LangChain, CrewAI, LangGraph
+- **Cloud**: Google Cloud Platform (GCP)
+- **Calendar**: Google Calendar API
+- **Scheduling**: Custom scheduling algorithms
 
-- **FastAPI**: A modern, high-performance web framework for building APIs
-- **CrewAI**: Framework for orchestrating role-playing AI agents
-- **LangGraph**: Library for creating LLM-powered multi-step reasoning systems
-- **Firebase/Firestore**: NoSQL database for storing job and interview data
-- **OpenAI**: GPT models for powering the AI agents
+## 📋 API Endpoints
 
-## Project Structure
+### Job Management
+- `POST /jobs/`: Create a new job posting
+- `GET /jobs/{job_id}`: Get job details
+- `GET /jobs/`: List all job postings
+- `PUT /jobs/{job_id}`: Update a job posting
 
-```
-app/
-├── api/              # API routes
-├── agents/           # AI agents for interview process
-├── config/           # Configuration files
-├── database/         # Database connection and operations
-├── models/           # Data models
-├── schemas/          # Pydantic schemas for validation
-├── services/         # Business logic services
-├── utils/            # Utility functions
-└── main.py           # Application entry point
-```
+### Candidate Management
+- `/candidates/`: Manage candidate profiles
+- `/resume/`: Process and analyze resumes
 
-## Environment Setup
+### Interview Process
+- `/shortlist/`: Shortlist candidates for interviews
+- `/reschedule/`: Reschedule interviews
+- `/langgraph/process`: Process using LangGraph agent workflow
+- `/agents/`: CrewAI agent-based operations
 
-1. Clone the repository
-2. Install dependencies:
+## 🔧 Installation and Setup
+
+### Prerequisites
+- Python 3.10+
+- Firebase account and project
+- Google Calendar API credentials
+- OpenAI API key
+
+### Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/interview-scheduler-agent.git
+   cd interview-scheduler-agent
    ```
+
+2. Create a virtual environment:
+   ```bash
+   python -m venv envi
+   source envi/bin/activate  # On Windows: envi\Scripts\activate
+   ```
+
+3. Install dependencies:
+   ```bash
    pip install -r requirements.txt
    ```
-3. Copy `.env.example` to `.env` and update as needed:
+
+4. Set up environment variables:
+   - Copy `.env.example` to `.env`
+   - Fill in your API keys and configurations
+
+5. Set up Firebase:
+   - Place your Firebase service account key in `app/config/service_account.json`
+
+6. Set up Google Calendar:
+   - Place your Google Calendar credentials in `app/config/calendar_service_account.json`
+
+7. Run the application:
+   ```bash
+   python run.py
    ```
-   cp .env.example .env
-   ```
 
-## Firebase Setup
+8. Access the application:
+   - API documentation: http://localhost:8000/docs
+   - Agent interface: http://localhost:8000/agent
+   - Chatbot demo: http://localhost:8000/chatbot
 
-1. Create a Firebase project in the [Firebase Console](https://console.firebase.google.com/)
-2. Set up Firestore database
-3. Get your Firebase credentials
-4. Set the Firebase project ID in your `.env` file
+## 🔀 Agent Workflows
 
-## Running the Application
+### CrewAI-Based Workflow
 
-Start the FastAPI server:
+The CrewAI system uses a team of specialized agents:
+1. **Job Analyzer**: Analyzes job descriptions to extract requirements
+2. **Candidate Screener**: Evaluates candidates against job requirements
+3. **Interview Planner**: Designs interview processes and questions
+4. **Scheduler**: Coordinates interview logistics
 
-```
-python -m app.main
-```
+### LangGraph-Based Workflow
 
-Or using Uvicorn directly:
+The LangGraph system implements a stateful workflow:
+1. **Job Analysis**: Analyzes job requirements and creates ideal profiles
+2. **Candidate Screening**: Evaluates and ranks candidates
+3. **Interview Planning**: Creates structured interview rounds
+4. **Scheduling**: Generates optimal interview schedules
 
-```
-uvicorn app.main:app --reload
-```
+## 📊 Sample Usage
 
-The application will be available at http://localhost:8000
+### Creating a Job Posting
 
-## API Documentation
+```python
+import requests
 
-Once the application is running, you can access:
+job_data = {
+    "job_role_name": "Senior Software Engineer",
+    "job_description": "We are looking for a Senior Software Engineer...",
+    "years_of_experience_needed": "5+ years",
+    "location": "Remote"
+}
 
-- Interactive API documentation: http://localhost:8000/docs
-- Alternative API documentation: http://localhost:8000/redoc
-
-## API Endpoints
-
-### Job Posting Endpoints
-
-- `POST /jobs/`: Create a new job posting
-- `GET /jobs/`: List all job postings
-- `GET /jobs/{job_id}`: Get a specific job posting
-- `PUT /jobs/{job_id}`: Update a job posting
-- `DELETE /jobs/{job_id}`: Delete a job posting
-
-### AI Agent Endpoints
-
-- `POST /analyze-job/{job_id}`: Analyze a job posting using LangGraph agents
-- `POST /create-interview-crew/{job_id}`: Create a CrewAI crew for a job posting
-
-## Development
-
-### Testing
-
-Run unit tests:
-
-```
-pytest
+response = requests.post("http://localhost:8000/jobs/", json=job_data)
+print(response.json())
 ```
 
-### Code Quality
+### Shortlisting Candidates
 
-Format code with Black:
+```python
+import requests
 
+shortlist_data = {
+    "job_id": "job-123",
+    "number_of_candidates": 5,
+    "number_of_rounds": 3
+}
+
+response = requests.post("http://localhost:8000/shortlist/", json=shortlist_data)
+print(response.json())
 ```
-black app
-```
 
-Lint code with Flake8:
+## 📝 License
 
-```
-flake8 app
-```
+This project is licensed under the MIT License - see the LICENSE file for details.
 
-## License
+## 🤝 Contributing
 
-MIT
+Contributions, issues, and feature requests are welcome!
+
+1. Fork the Project
+2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the Branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request

@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interview Scheduler Agent Interface</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.1/dist/socket.io.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f8f9fa;
+            margin-bottom: 100px;
+        }
+        .chat-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .message {
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            position: relative;
+            max-width: 80%;
+        }
+        .user-message {
+            background-color: #dcf8c6;
+            margin-left: auto;
+            border-bottom-right-radius: 0;
+        }
+        .agent-message {
+            background-color: #ffffff;
+            margin-right: auto;
+            border-bottom-left-radius: 0;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        .thinking-container {
+            background-color: #f1f1f1;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            max-width: 90%;
+            margin-left: 40px;
+        }
+        .thinking-step {
+            padding: 10px;
+            background-color: white;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            border-left: 4px solid #007bff;
+            transition: opacity 0.5s ease;
+        }
+        .agent-name {
+            font-weight: bold;
+            color: #007bff;
+        }
+        .agent-thought {
+            margin-top: 5px;
+        }
+        .timestamp {
+            font-size: 0.7em;
+            color: #888;
+            margin-top: 5px;
+            text-align: right;
+        }
+        .input-area {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background-color: white;
+            padding: 15px;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+        }
+        .input-group {
+            max-width: 1170px;
+            margin: 0 auto;
+        }
+        .status-indicator {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+        .status-connected {
+            background-color: #28a745;
+        }
+        .status-disconnected {
+            background-color: #dc3545;
+        }
+        .thinking-heading {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 10px;
+            font-style: italic;
+        }
+        .agent-title {
+            display: inline-block;
+            padding: 3px 10px;
+            background-color: #e9ecef;
+            border-radius: 15px;
+            margin-right: 10px;
+            font-size: 0.9em;
+        }
+        /* Agent color coding */
+        .agent-Job-Analysis-Expert { border-left-color: #28a745; }
+        .agent-Candidate-Screening-Specialist { border-left-color: #dc3545; }
+        .agent-Interview-Planning-Strategist { border-left-color: #fd7e14; }
+        .agent-Interview-Scheduling-Coordinator { border-left-color: #6f42c1; }
+        .agent-System { border-left-color: #007bff; }
+        
+        .loading {
+            display: inline-block;
+            position: relative;
+            width: 80px;
+            height: 20px;
+        }
+        .loading div {
+            position: absolute;
+            top: 5px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #007bff;
+            animation-timing-function: cubic-bezier(0, 1, 1, 0);
+        }
+        .loading div:nth-child(1) {
+            left: 8px;
+            animation: loading1 0.6s infinite;
+        }
+        .loading div:nth-child(2) {
+            left: 8px;
+            animation: loading2 0.6s infinite;
+        }
+        .loading div:nth-child(3) {
+            left: 32px;
+            animation: loading2 0.6s infinite;
+        }
+        .loading div:nth-child(4) {
+            left: 56px;
+            animation: loading3 0.6s infinite;
+        }
+        @keyframes loading1 {
+            0% { transform: scale(0); }
+            100% { transform: scale(1); }
+        }
+        @keyframes loading2 {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(24px, 0); }
+        }
+        @keyframes loading3 {
+            0% { transform: scale(1); }
+            100% { transform: scale(0); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <h1 class="text-center mb-4">Interview Scheduler Agent Interface</h1>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="agent-selector">
+                <div class="btn-group" role="group" aria-label="Agent System Type">
+                    <input type="radio" class="btn-check" name="agent-system" id="crewai-option" autocomplete="off" checked>
+                    <label class="btn btn-outline-primary" for="crewai-option">CrewAI</label>
+                    
+                    <input type="radio" class="btn-check" name="agent-system" id="langgraph-option" autocomplete="off">
+                    <label class="btn btn-outline-info" for="langgraph-option">LangGraph</label>
+                </div>
+            </div>
+            <div class="status-container text-end">
+                <span id="connection-status">Disconnected</span>
+                <div id="status-indicator" class="status-indicator status-disconnected d-inline-block ms-2"></div>
+            </div>
+        </div>
+        
+        <div id="chat-container" class="chat-container">
+            <div class="message agent-message">
+                <div>Welcome to the Interview Scheduler Agent Interface. How can I help you today?</div>
+                <div class="timestamp">Just now</div>
+            </div>
+        </div>
+        
+        <div class="input-area">
+            <div class="input-group">
+                <input type="text" id="message-input" class="form-control" placeholder="Type your message here...">
+                <button id="send-button" class="btn btn-primary">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Socket.IO connection
+        let socket;
+        let sessionId = null;
+        let isProcessing = false;
+        let currentThinkingContainer = null;
+        let selectedAgentSystem = 'crew_ai'; // Default to CrewAI
+        
+        // Connect to Socket.IO server
+        function connectSocket() {
+            // Create Socket.IO client
+            socket = io({
+                transports: ['websocket'],
+                upgrade: false,
+                reconnection: true,
+                reconnectionDelay: 1000,
+                reconnectionAttempts: 5
+            });
+            
+            // Socket connection event handlers
+            socket.on('connect', () => {
+                console.log('Connected to server');
+                document.getElementById('connection-status').textContent = 'Connected';
+                document.getElementById('status-indicator').className = 'status-indicator status-connected d-inline-block ms-2';
+                
+                // Join a session or create a new one
+                socket.emit('join_session', { session_id: sessionId });
+            });
+            
+            socket.on('disconnect', () => {
+                console.log('Disconnected from server');
+                document.getElementById('connection-status').textContent = 'Disconnected';
+                document.getElementById('status-indicator').className = 'status-indicator status-disconnected d-inline-block ms-2';
+            });
+            
+            socket.on('connected', (data) => {
+                console.log('Server acknowledged connection:', data);
+            });
+            
+            socket.on('session_joined', (data) => {
+                console.log('Joined session:', data);
+                sessionId = data.session_id;
+            });
+            
+            socket.on('processing_started', (data) => {
+                console.log('Processing started:', data);
+                isProcessing = true;
+                
+                // Create and add the thinking container
+                currentThinkingContainer = createThinkingContainer();
+                document.getElementById('chat-container').appendChild(currentThinkingContainer);
+                
+                // Scroll to bottom
+                scrollToBottom();
+            });
+            
+            socket.on('thinking', (data) => {
+                console.log('Thinking:', data);
+                
+                if (currentThinkingContainer) {
+                    const thinkingStep = createThinkingStep(data);
+                    currentThinkingContainer.querySelector('.thinking-steps').appendChild(thinkingStep);
+                    
+                    // Scroll to bottom
+                    scrollToBottom();
+                }
+            });
+            
+            socket.on('agent_response', (data) => {
+                console.log('Agent response:', data);
+                isProcessing = false;
+                
+                // Create and add the agent message
+                const agentMessage = createAgentMessage(data.response, data.primary_agent);
+                document.getElementById('chat-container').appendChild(agentMessage);
+                
+                // Enable the input and button
+                document.getElementById('message-input').disabled = false;
+                document.getElementById('send-button').disabled = false;
+                
+                // Clear the loading indicator
+                if (document.getElementById('loading-indicator')) {
+                    document.getElementById('loading-indicator').remove();
+                }
+                
+                // Scroll to bottom
+                scrollToBottom();
+            });
+            
+            socket.on('error', (data) => {
+                console.error('Error:', data);
+                isProcessing = false;
+                
+                // Create and add the error message
+                const errorMessage = createAgentMessage('Error: ' + data.message, 'System');
+                errorMessage.style.backgroundColor = '#ffdddd';
+                document.getElementById('chat-container').appendChild(errorMessage);
+                
+                // Enable the input and button
+                document.getElementById('message-input').disabled = false;
+                document.getElementById('send-button').disabled = false;
+                
+                // Scroll to bottom
+                scrollToBottom();
+            });
+        }
+        
+        // Function to create a user message element
+        function createUserMessage(text) {
+            const message = document.createElement('div');
+            message.className = 'message user-message';
+            
+            const content = document.createElement('div');
+            content.textContent = text;
+            message.appendChild(content);
+            
+            const timestamp = document.createElement('div');
+            timestamp.className = 'timestamp';
+            timestamp.textContent = formatTimestamp(new Date());
+            message.appendChild(timestamp);
+            
+            return message;
+        }
+        
+        // Function to create an agent message element
+        function createAgentMessage(text, agent = 'Agent') {
+            const message = document.createElement('div');
+            message.className = 'message agent-message';
+            
+            // Add agent title if provided
+            if (agent && agent !== 'Agent') {
+                const agentTitle = document.createElement('div');
+                agentTitle.className = 'agent-title';
+                agentTitle.textContent = agent;
+                message.appendChild(agentTitle);
+            }
+            
+            const content = document.createElement('div');
+            content.textContent = text;
+            message.appendChild(content);
+            
+            const timestamp = document.createElement('div');
+            timestamp.className = 'timestamp';
+            timestamp.textContent = formatTimestamp(new Date());
+            message.appendChild(timestamp);
+            
+            return message;
+        }
+        
+        // Function to create a thinking container
+        function createThinkingContainer() {
+            const container = document.createElement('div');
+            container.className = 'thinking-container';
+            
+            const heading = document.createElement('div');
+            heading.className = 'thinking-heading';
+            heading.textContent = 'Agent Thought Process:';
+            container.appendChild(heading);
+            
+            const steps = document.createElement('div');
+            steps.className = 'thinking-steps';
+            container.appendChild(steps);
+            
+            // Add loading indicator
+            const loading = document.createElement('div');
+            loading.id = 'loading-indicator';
+            loading.className = 'loading';
+            loading.innerHTML = '<div></div><div></div><div></div><div></div>';
+            container.appendChild(loading);
+            
+            return container;
+        }
+        
+        // Function to create a thinking step
+        function createThinkingStep(data) {
+            const step = document.createElement('div');
+            step.className = 'thinking-step';
+            
+            // Add agent-specific styling
+            const normalizedAgent = data.agent.replace(/\s+/g, '-');
+            step.classList.add(`agent-${normalizedAgent}`);
+            
+            const agentName = document.createElement('div');
+            agentName.className = 'agent-name';
+            agentName.textContent = data.agent;
+            step.appendChild(agentName);
+            
+            const thought = document.createElement('div');
+            thought.className = 'agent-thought';
+            thought.textContent = data.thought;
+            step.appendChild(thought);
+            
+            const timestamp = document.createElement('div');
+            timestamp.className = 'timestamp';
+            timestamp.textContent = formatTimestamp(new Date(data.timestamp));
+            step.appendChild(timestamp);
+            
+            return step;
+        }
+        
+        // Format timestamp
+        function formatTimestamp(date) {
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+        
+        // Scroll to bottom of chat container
+        function scrollToBottom() {
+            const chatContainer = document.getElementById('chat-container');
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            // Also scroll the window itself
+            window.scrollTo(0, document.body.scrollHeight);
+        }
+        
+        // Send message to server
+        function sendMessage() {
+            if (isProcessing) return;
+            
+            const input = document.getElementById('message-input');
+            const message = input.value.trim();
+            
+            if (message) {
+                // Disable input and button
+                input.disabled = true;
+                document.getElementById('send-button').disabled = true;
+                
+                // Create and add the user message
+                const userMessage = createUserMessage(message);
+                document.getElementById('chat-container').appendChild(userMessage);
+                
+                // Clear the input
+                input.value = '';
+                
+                // Send the message to the server
+                socket.emit('agent_query', { 
+                    query: message,
+                    agent_system_type: selectedAgentSystem
+                });
+                
+                // Scroll to bottom
+                scrollToBottom();
+            }
+        }
+        
+        // Initialize the page
+        document.addEventListener('DOMContentLoaded', () => {
+            connectSocket();
+            
+            // Set up event listeners
+            document.getElementById('send-button').addEventListener('click', sendMessage);
+            document.getElementById('message-input').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+            
+            // Set up agent system type selectors
+            document.getElementById('crewai-option').addEventListener('change', function() {
+                if (this.checked) {
+                    selectedAgentSystem = 'crew_ai';
+                    console.log('Selected agent system: CrewAI');
+                }
+            });
+            
+            document.getElementById('langgraph-option').addEventListener('change', function() {
+                if (this.checked) {
+                    selectedAgentSystem = 'langgraph';
+                    console.log('Selected agent system: LangGraph');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

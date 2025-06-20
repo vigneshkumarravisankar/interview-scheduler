@@ -54,6 +54,10 @@ class InterviewShortlistService:
                     job_id
                 )
                 
+                
+               
+                print('candidates list',candidates)
+                
                 if not candidates:
                     print(f"No candidates found using direct query. Falling back to service method.")
                     candidates = CandidateService.get_candidates_by_job_id(job_id)
@@ -62,17 +66,17 @@ class InterviewShortlistService:
                 candidates = CandidateService.get_candidates_by_job_id(job_id)
             
             # Generate emergency candidates if none found
-            if not candidates:
-                print(f"No candidates found for job {job_id}, creating emergency candidates")
-                # Create emergency candidates
-                emergency_candidates = InterviewShortlistService._create_emergency_candidates(job_id, number_of_candidates)
+            # if not candidates:
+            #     print(f"No candidates found for job {job_id}, creating emergency candidates")
+            #     # Create emergency candidates
+            #     emergency_candidates = InterviewShortlistService._create_emergency_candidates(job_id, number_of_candidates)
                 
-                # Save the emergency candidates to database
-                for candidate in emergency_candidates:
-                    candidate_id = CandidateService.create_candidate(candidate)
-                    candidate["id"] = candidate_id
+            #     # Save the emergency candidates to database
+            #     for candidate in emergency_candidates:
+            #         candidate_id = CandidateService.create_candidate(candidate)
+            #         candidate["id"] = candidate_id
                 
-                candidates = emergency_candidates
+            #     candidates = emergency_candidates
             
             # Sort candidates by AI fit score (descending)
             try:
@@ -172,22 +176,50 @@ class InterviewShortlistService:
                         am_pm = 'AM' if start_time.hour < 12 else 'PM'
                         formatted_time = f"{hour_12}{am_pm}"
                         
+                        # Create event summary and description
+                        summary = f"Interview: {candidate_name} with {interviewer.get('name')} - Round {i+1} ({round_type})"
+                            
+                        # Safely access job attributes - convert Pydantic model to dict if needed
+                        job_role_name = job.job_role_name if hasattr(job, 'job_role_name') else 'Unknown Position'
+                        
+                        description = f"""
+                        Interview for {candidate_name} ({candidate_email})
+                        Job: {job_role_name}
+                        Round: {i+1} of {no_of_interviews} - {round_type} Round
+                        Interviewer: {interviewer.get('name')} ({interviewer.get('email')})
+                        
+                        Please join using the Google Meet link at the scheduled time.
+                        """
+                        
+                        # Add email notification first (so it's still sent even if calendar fails)
+                        additional_note = (f"Interview Round {i+1} ({round_type})\n" 
+                                          f"Scheduled for {start_time.strftime('%A, %B %d, %Y')} at {formatted_time}")
+                            
+                        try:
+                            # Import here to avoid circular imports
+                            from app.utils.email_notification import send_interview_notification
+                            
+                            # Send email notification with proper parameters
+                            send_interview_notification(
+                                recipient_email=candidate_email,
+                                start_time=start_iso,
+                                end_time=end_iso,
+                                meet_link=meet_link,
+                                event_id=event_id,
+                                interviewer_name=interviewer.get('name'),
+                                candidate_name=candidate_name,
+                                job_title=job_role_name,
+                                additional_note=additional_note,
+                                interviewer_email=interviewer.get('email')
+                            )
+                        except Exception as email_error:
+                            print(f"Error sending email notification: {email_error}")
+                            # Continue even if email notification fails
+                            
                         # Try to create an actual calendar event
                         try:
                             # Import here to avoid circular imports
                             from app.utils.calendar_service import create_calendar_event
-                            from app.utils.email_notification import send_interview_notification
-                            
-                            # Create event summary and description
-                            summary = f"Interview: {candidate_name} with {interviewer.get('name')} - Round {i+1} ({round_type})"
-                            description = f"""
-                            Interview for {candidate_name} ({candidate_email})
-                            Job: {job.get('job_role_name', 'Unknown Position')}
-                            Round: {i+1} of {no_of_interviews} - {round_type} Round
-                            Interviewer: {interviewer.get('name')} ({interviewer.get('email')})
-                            
-                            Please join using the Google Meet link at the scheduled time.
-                            """
                             
                             # Attempt to create a real calendar event
                             calendar_event = create_calendar_event(
@@ -202,28 +234,17 @@ class InterviewShortlistService:
                                 ]
                             )
                             
-                            if calendar_event:
-                                print(f"Created calendar event: {calendar_event.get('id')}")
-                                event_id = calendar_event.get('id', event_id)
-                                meet_link = calendar_event.get('hangoutLink', meet_link)
-                                html_link = calendar_event.get('htmlLink', f"https://www.google.com/calendar/event?eid={event_id}")
-                                
-                                # Send email notification
-                                send_interview_notification(
-                                    candidate_name=candidate_name,
-                                    candidate_email=candidate_email,
-                                    interviewer_name=interviewer.get('name'),
-                                    interviewer_email=interviewer.get('email'),
-                                    job_title=job.get('job_role_name', 'Unknown Position'),
-                                    interview_time=formatted_time,
-                                    interview_date=start_time.strftime("%A, %B %d, %Y"),
-                                    meet_link=meet_link,
-                                    round_number=i+1,
-                                    round_type=round_type
-                                )
+                            print(f"Created calendar event: {calendar_event.get('id')}")
+                            event_id = calendar_event.get('id', event_id)
+                            meet_link = calendar_event.get('hangoutLink', meet_link)
+                            html_link = calendar_event.get('htmlLink', f"https://www.google.com/calendar/event?eid={event_id}")
+                            
                         except Exception as calendar_error:
                             print(f"Error creating calendar event: {calendar_error}")
-                            # Continue with mock data
+                            # Generate a fallback event ID
+                            event_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=20))
+                            html_link = f"https://www.google.com/calendar/event?eid={event_id}"
+                            # Continue with process without calendar event
                     else:
                         # For future rounds, we'll only create placeholder data
                         # These will be scheduled when the previous round is passed
@@ -269,7 +290,7 @@ class InterviewShortlistService:
                     "candidate_id": candidate.get("id"),
                     "candidate_name": candidate_name,
                     "candidate_email": candidate_email,
-                    "job_role": job.get("job_role_name", "Unknown Position"),
+                    "job_role": job.job_role_name if hasattr(job, 'job_role_name') else "Unknown Position",
                     "no_of_interviews": no_of_interviews,
                     "feedback": feedback_array,
                     "completedRounds": 0,
@@ -338,9 +359,22 @@ class InterviewShortlistService:
         # Get job details for relevant experience generation
         try:
             job = JobService.get_job_posting(job_id)
-            job_title = job.get("job_role_name", "Unknown Position") if job else "Unknown Position"
-            job_description = job.get("job_description", "") if job else ""
-            years_needed = job.get("years_of_experience_needed", "3") if job else "3"
+            # Handle Pydantic model vs dictionary
+            if job:
+                if hasattr(job, 'job_role_name'):
+                    # It's a Pydantic model
+                    job_title = job.job_role_name
+                    job_description = job.job_description
+                    years_needed = job.years_of_experience_needed
+                else:
+                    # It's a dict
+                    job_title = job.get("job_role_name", "Unknown Position")
+                    job_description = job.get("job_description", "")
+                    years_needed = job.get("years_of_experience_needed", "3")
+            else:
+                job_title = "Unknown Position"
+                job_description = ""
+                years_needed = "3"
             
             # Parse years needed to generate appropriate candidate experience
             try:

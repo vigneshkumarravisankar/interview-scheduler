@@ -23,6 +23,84 @@ from app.schemas.final_candidate_schema import FinalCandidateResponse
 from app.utils.pdf_generator import generate_offer_letter_pdf
 
 
+def send_email(to_emails: List[str], subject: str, html_content: str, 
+               cc: List[str] = None, bcc: List[str] = None) -> bool:
+    """
+    Send a generic email using the Gmail API
+    
+    Args:
+        to_emails: List of recipient email addresses
+        subject: Email subject
+        html_content: HTML content of the email
+        cc: List of CC email addresses (optional)
+        bcc: List of BCC email addresses (optional)
+        
+    Returns:
+        True if the email was scheduled to be sent
+    """
+    try:
+        # Initialize OAuth manager
+        oauth_manager = EmailService.get_oauth_manager()
+        creds = oauth_manager.get_credentials()
+        service = build('gmail', 'v1', credentials=creds)
+        
+        # Create message
+        message = MIMEMultipart('alternative')
+        message['Subject'] = subject
+        message['From'] = "me"  # Special value for authenticated user
+        message['To'] = ", ".join(to_emails)
+        
+        if cc:
+            message['Cc'] = ", ".join(cc)
+        
+        if bcc:
+            message['Bcc'] = ", ".join(bcc)
+        
+        # Create plain text version by stripping HTML
+        from html.parser import HTMLParser
+
+        class MLStripper(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.reset()
+                self.strict = False
+                self.convert_charrefs = True
+                self.text = []
+            
+            def handle_data(self, d):
+                self.text.append(d)
+            
+            def get_data(self):
+                return ''.join(self.text)
+
+        def strip_tags(html):
+            s = MLStripper()
+            s.feed(html)
+            return s.get_data()
+        
+        plain_text = strip_tags(html_content)
+        
+        # Attach parts
+        part1 = MIMEText(plain_text, 'plain')
+        part2 = MIMEText(html_content, 'html')
+        
+        message.attach(part1)
+        message.attach(part2)
+        
+        # Encode message
+        raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+        
+        # Send message
+        EmailService.send_message(service, "me", {'raw': raw_message})
+        return True
+        
+    except Exception as e:
+        print(f"Error sending email: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 class EmailService:
     """Email service for sending offer letters"""
 
