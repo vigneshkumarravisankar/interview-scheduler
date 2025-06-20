@@ -393,9 +393,13 @@ class ScheduleInterviewTool(BaseTool):
                     
                     # Create event summary and description
                     summary = f"Interview: {candidate.name} with {interviewer.get('name')} - Round {i+1} ({round_type})"
+                    
+                    # Safely access job attributes - convert Pydantic model to dict if needed
+                    job_role_name = job.job_role_name if hasattr(job, 'job_role_name') else 'Unknown Position'
+                    
                     description = f"""
                     Interview for {candidate.name} ({candidate.email})
-                    Job: {job.job_role_name}
+                    Job: {job_role_name}
                     Round: {i+1} of {number_of_rounds} - {round_type} Round
                     Interviewer: {interviewer.get('name')} ({interviewer.get('email')})
                     
@@ -461,11 +465,11 @@ class ScheduleInterviewTool(BaseTool):
                             # Send email notification
                             send_interview_notification(
                                 candidate_name=candidate.name,
-                                candidate_email=candidate.email,
+                                recipient_email=candidate.email,
                                 interviewer_name=interviewer.get('name'),
                                 interviewer_email=interviewer.get('email'),
-                                job_title=job.job_role_name,
-                                interview_time=formatted_time,
+                                job_title=job.job_role_name if hasattr(job, 'job_role_name') else 'Unknown Position',
+                                start_time=formatted_time,
                                 interview_date=start_time.strftime("%A, %B %d, %Y"),
                                 meet_link=meet_link,
                                 round_number=i+1,

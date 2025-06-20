@@ -334,11 +334,11 @@ class SendEmailNotificationTool(BaseTool):
             # Send notification
             send_interview_notification(
                 candidate_name=candidate_name,
-                candidate_email=candidate_email,
+                recipient_email=candidate_email,
                 interviewer_name=interviewer_name,
                 interviewer_email=interviewer_email,
                 job_title=job_title,
-                interview_time=interview_time,
+                start_time=interview_time,
                 interview_date=interview_date,
                 meet_link=meet_link,
                 round_number=round_number,

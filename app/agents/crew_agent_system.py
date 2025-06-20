@@ -607,11 +607,11 @@ class RescheduleInterviewTool(BaseTool):
             try:
                 send_interview_notification(
                     candidate_name=candidate_name,
-                    candidate_email=candidate_email,
+                    recipient_email=candidate_email,
                     interviewer_name=interviewer_name,
                     interviewer_email=interviewer_email,
                     job_title=job_role,
-                    interview_time=formatted_time,
+                    start_time=formatted_time,
                     interview_date=start_time.strftime("%A, %B %d, %Y"),
                     meet_link=meet_link,
                     round_number=round_index+1,

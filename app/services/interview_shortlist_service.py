@@ -184,9 +184,13 @@ class InterviewShortlistService:
                             
                             # Create event summary and description
                             summary = f"Interview: {candidate_name} with {interviewer.get('name')} - Round {i+1} ({round_type})"
+                            
+                            # Safely access job attributes - convert Pydantic model to dict if needed
+                            job_role_name = job.job_role_name if hasattr(job, 'job_role_name') else 'Unknown Position'
+                            
                             description = f"""
                             Interview for {candidate_name} ({candidate_email})
-                            Job: {job.get('job_role_name', 'Unknown Position')}
+                            Job: {job_role_name}
                             Round: {i+1} of {no_of_interviews} - {round_type} Round
                             Interviewer: {interviewer.get('name')} ({interviewer.get('email')})
                             
@@ -215,11 +219,11 @@ class InterviewShortlistService:
                                 # Send email notification
                                 send_interview_notification(
                                     candidate_name=candidate_name,
-                                    candidate_email=candidate_email,
+                                    recipient_email=candidate_email,
                                     interviewer_name=interviewer.get('name'),
                                     interviewer_email=interviewer.get('email'),
-                                    job_title=job.get('job_role_name', 'Unknown Position'),
-                                    interview_time=formatted_time,
+                                    job_title=job.job_role_name if hasattr(job, 'job_role_name') else 'Unknown Position',
+                                    start_time=formatted_time,
                                     interview_date=start_time.strftime("%A, %B %d, %Y"),
                                     meet_link=meet_link,
                                     round_number=i+1,
@@ -273,7 +277,7 @@ class InterviewShortlistService:
                     "candidate_id": candidate.get("id"),
                     "candidate_name": candidate_name,
                     "candidate_email": candidate_email,
-                    "job_role": job.get("job_role_name", "Unknown Position"),
+                    "job_role": job.job_role_name if hasattr(job, 'job_role_name') else "Unknown Position",
                     "no_of_interviews": no_of_interviews,
                     "feedback": feedback_array,
                     "completedRounds": 0,
@@ -342,9 +346,22 @@ class InterviewShortlistService:
         # Get job details for relevant experience generation
         try:
             job = JobService.get_job_posting(job_id)
-            job_title = job.get("job_role_name", "Unknown Position") if job else "Unknown Position"
-            job_description = job.get("job_description", "") if job else ""
-            years_needed = job.get("years_of_experience_needed", "3") if job else "3"
+            # Handle Pydantic model vs dictionary
+            if job:
+                if hasattr(job, 'job_role_name'):
+                    # It's a Pydantic model
+                    job_title = job.job_role_name
+                    job_description = job.job_description
+                    years_needed = job.years_of_experience_needed
+                else:
+                    # It's a dict
+                    job_title = job.get("job_role_name", "Unknown Position")
+                    job_description = job.get("job_description", "")
+                    years_needed = job.get("years_of_experience_needed", "3")
+            else:
+                job_title = "Unknown Position"
+                job_description = ""
+                years_needed = "3"
             
             # Parse years needed to generate appropriate candidate experience
             try:

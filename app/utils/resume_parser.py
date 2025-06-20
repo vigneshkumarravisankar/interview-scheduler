@@ -104,7 +104,7 @@ def extract_candidate_data_with_llm(resume_text: str, job_data: Dict[str, Any]) 
           "created_at": "",
           "email": "",
           "id": "",
-          "interview_time": null,
+          "start_time": null,
           "job_description": "{job_data.get('job_description', '')}",
           "job_id": "{job_data.get('job_id', '')}",
           "job_role_name": "{job_data.get('job_role_name', '')}",
