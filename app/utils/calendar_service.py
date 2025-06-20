@@ -3,37 +3,55 @@ import random
 import string
 from typing import List, Dict, Any, Optional
 import datetime
+import pickle
 from dotenv import load_dotenv
-from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 
 # Load environment variables
 load_dotenv()
 
 # Constants
-CALENDAR_ID = os.environ.get('CALENDAR_ID', '5a546ff43dcafe8a35c2c56e0b3e17e982955765d7d1fef0870b90e6f7072641@group.calendar.google.com')
-PROJECT_ID = os.environ.get('CALENDAR_PROJECT_ID', 'sample1-455616')
 SCOPES = ['https://www.googleapis.com/auth/calendar']
-SERVICE_ACCOUNT_FILE = os.environ.get('CALENDAR_SERVICE_ACCOUNT_PATH', 'app/config/calendar_service_account.json')
-
+CREDENTIALS_FILE = os.environ.get('CALENDAR_CREDENTIALS_PATH', 'app/config/gmail_credentials.json')
+TOKEN_FILE = os.environ.get('CALENDAR_TOKEN_PATH', 'app/config/calendar_token.pickle')
 
 class CalendarService:
     """Service for interacting with Google Calendar API"""
     
     @staticmethod
     def get_calendar_service():
-        """Get a service client for Google Calendar API"""
+        """
+        Get a service client for Google Calendar API using OAuth flow
+        This matches the approach in the working-interview-scheduler
+        """
         try:
-            print(f"Using calendar service account file: {SERVICE_ACCOUNT_FILE}")
-            if os.path.exists(SERVICE_ACCOUNT_FILE):
-                credentials = service_account.Credentials.from_service_account_file(
-                    SERVICE_ACCOUNT_FILE, scopes=SCOPES
-                )
-                service = build('calendar', 'v3', credentials=credentials)
-                return service
-            else:
-                print(f"Calendar service account file not found at {SERVICE_ACCOUNT_FILE}")
-                raise FileNotFoundError(f"Calendar service account file not found: {SERVICE_ACCOUNT_FILE}")
+            creds = None
+            # Check if we have stored credentials
+            if os.path.exists(TOKEN_FILE):
+                with open(TOKEN_FILE, 'rb') as token:
+                    creds = pickle.load(token)
+            
+            # If credentials don't exist or are invalid, get new ones
+            if not creds or not creds.valid:
+                if creds and creds.expired and creds.refresh_token:
+                    creds.refresh(Request())
+                else:
+                    if not os.path.exists(CREDENTIALS_FILE):
+                        print(f"Credentials file not found at {CREDENTIALS_FILE}")
+                        raise FileNotFoundError(f"Calendar credentials file not found: {CREDENTIALS_FILE}")
+                    
+                    flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
+                    creds = flow.run_local_server(port=0)
+                    
+                    # Save credentials for next time
+                    with open(TOKEN_FILE, 'wb') as token:
+                        pickle.dump(creds, token)
+            
+            service = build('calendar', 'v3', credentials=creds)
+            return service
         except Exception as e:
             print(f"Error creating calendar service: {e}")
             raise
@@ -85,19 +103,19 @@ class CalendarService:
         Returns:
             Dict containing created event information
         """
-        # try:
-        service = CalendarService.get_calendar_service()
-            
+        try:
+            service = CalendarService.get_calendar_service()
+                
             # Generate or use the provided Google Meet link
-        if use_specific_meet_link:
+            if use_specific_meet_link:
                 meet_link = use_specific_meet_link
-        else:
+            else:
                 # Generate a Meet code and link
                 meet_code = CalendarService.generate_meet_code()
                 meet_link = f"https://meet.google.com/{meet_code}"
-            
+                
             # Create event with the Meet link in location and description
-        event = {
+            event = {
                 'summary': summary,
                 'location': f"Google Meet: {meet_link}",
                 'description': f"{description}\n\nJoin with Google Meet: {meet_link}",
@@ -116,26 +134,44 @@ class CalendarService:
                     ],
                 },
             }
-            
+                
             # Only add attendees if explicitly requested (will only work with Domain-Wide Delegation)
-        if attendees:
-            event['attendees'] = attendees
+            if attendees:
+                event['attendees'] = attendees
             
-            # Add the event to the calendar
-        try:
+            # Add conference data for Google Meet
+            event['conferenceData'] = {
+                'createRequest': {
+                    'requestId': f"meet-{random.randint(1000000, 9999999)}",
+                    'conferenceSolutionKey': {
+                        'type': 'hangoutsMeet'
+                    }
+                }
+            }
+            
+            # Add the event to the calendar with conference data
+            try:
                 event = service.events().insert(
-                    calendarId=CALENDAR_ID,
-                    body=event
+                    calendarId='primary',  # Use primary calendar
+                    body=event,
+                    conferenceDataVersion=1  # Request Google Meet link
                 ).execute()
                 
-                print(f"Calendar event created successfully with Meet link: {meet_link}")
+                print(f"Calendar event created successfully")
                 
-                # Store our generated Meet link in the event response
-                # so it's available to the scheduling service
+                # Get the actual Meet link from the response
+                if 'conferenceData' in event and 'entryPoints' in event['conferenceData']:
+                    for entry_point in event['conferenceData']['entryPoints']:
+                        if entry_point['entryPointType'] == 'video':
+                            meet_link = entry_point['uri']
+                            print(f"Google Meet link: {meet_link}")
+                            break
+                
+                # Store our meet link in the event response
                 event['manual_meet_link'] = meet_link
                 
                 return event
-        except Exception as insert_error:
+            except Exception as insert_error:
                 print(f"Error inserting calendar event: {insert_error}")
                 
                 # If error is about attendees, remove them and retry
@@ -143,42 +179,34 @@ class CalendarService:
                     print("Removing attendees due to service account limitations")
                     if 'attendees' in event:
                         del event['attendees']
-                
+                    
                     # Try the insert again without attendees
                     event = service.events().insert(
-                        calendarId=CALENDAR_ID,
-                        body=event
+                        calendarId='primary',  # Use primary calendar
+                        body=event,
+                        conferenceDataVersion=1
                     ).execute()
                     
-                    print(f"Calendar event created successfully with Meet link: {meet_link}")
+                    print(f"Calendar event created successfully without attendees")
+                    
+                    # Get the actual Meet link from the response
+                    if 'conferenceData' in event and 'entryPoints' in event['conferenceData']:
+                        for entry_point in event['conferenceData']['entryPoints']:
+                            if entry_point['entryPointType'] == 'video':
+                                meet_link = entry_point['uri']
+                                print(f"Google Meet link: {meet_link}")
+                                break
+                    
                     event['manual_meet_link'] = meet_link
                     
                     return event
                 else:
                     # Re-raise other errors
                     raise
-        # except Exception as e:
-        #     print(f"Error creating calendar event: {e}")
-            # Return a mock event if we can't create a real one
-            # mock_event = {
-            #     'id': ''.join(random.choices(string.ascii_letters + string.digits, k=20)),
-            #     'htmlLink': f"https://calendar.google.com/calendar/event?eid=mock-event",
-            #     'hangoutLink': f"https://meet.google.com/{CalendarService.generate_meet_code()}",
-            #     'manual_meet_link': f"https://meet.google.com/{CalendarService.generate_meet_code()}",
-            #     'summary': summary,
-            #     'description': description,
-            #     'start': {
-            #         'dateTime': start_time.isoformat(),
-            #         'timeZone': timezone,
-            #     },
-            #     'end': {
-            #         'dateTime': end_time.isoformat(),
-            #         'timeZone': timezone,
-            #     },
-            #     'is_mock': True  # Add flag to indicate this is a mock event
-            # }
-            # print("Created mock calendar event due to error")
-            # return mock_event
+        except Exception as e:
+            print(f"Error creating calendar event: {e}")
+            # Raise the exception to be handled by the caller
+            raise
     
     @staticmethod
     def get_events(
@@ -206,7 +234,7 @@ class CalendarService:
             
             # Query parameters
             params = {
-                'calendarId': CALENDAR_ID,
+                'calendarId': 'primary',  # Use primary calendar
                 'timeMin': time_min.isoformat() + 'Z',  # 'Z' indicates UTC time
                 'maxResults': max_results,
                 'singleEvents': True,
@@ -349,7 +377,7 @@ class CalendarService:
         """
         try:
             service = CalendarService.get_calendar_service()
-            service.events().delete(calendarId=CALENDAR_ID, eventId=event_id).execute()
+            service.events().delete(calendarId='primary', eventId=event_id).execute()
             print(f"Successfully deleted event {event_id}")
             return True
         except Exception as e:
@@ -365,7 +393,8 @@ def create_calendar_event(
     end_time: str,
     location: str = "Google Meet",
     attendees: List[Dict[str, str]] = None,
-    timezone: str = "Asia/Kolkata"
+    timezone: str = "Asia/Kolkata",
+    calendar_id: str = "primary"  # Added calendar_id parameter with default
 ) -> Dict[str, Any]:
     """
     Create a calendar event for an interview - wrapper function for CalendarService.create_interview_event
@@ -406,12 +435,5 @@ def create_calendar_event(
         )
     except Exception as e:
         print(f"Error in create_calendar_event wrapper: {e}")
-        # Create a mock event as fallback
-        mock_event = {
-            'id': ''.join(random.choices(string.ascii_letters + string.digits, k=20)),
-            'htmlLink': f"https://calendar.google.com/calendar/event?eid=mock-event",
-            'hangoutLink': f"https://meet.google.com/{CalendarService.generate_meet_code()}",
-            'summary': summary,
-            'is_mock': True
-        }
-        return mock_event
+        # Re-raise the exception to be handled by the caller
+        raise

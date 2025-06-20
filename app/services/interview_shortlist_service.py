@@ -176,26 +176,50 @@ class InterviewShortlistService:
                         am_pm = 'AM' if start_time.hour < 12 else 'PM'
                         formatted_time = f"{hour_12}{am_pm}"
                         
+                        # Create event summary and description
+                        summary = f"Interview: {candidate_name} with {interviewer.get('name')} - Round {i+1} ({round_type})"
+                            
+                        # Safely access job attributes - convert Pydantic model to dict if needed
+                        job_role_name = job.job_role_name if hasattr(job, 'job_role_name') else 'Unknown Position'
+                        
+                        description = f"""
+                        Interview for {candidate_name} ({candidate_email})
+                        Job: {job_role_name}
+                        Round: {i+1} of {no_of_interviews} - {round_type} Round
+                        Interviewer: {interviewer.get('name')} ({interviewer.get('email')})
+                        
+                        Please join using the Google Meet link at the scheduled time.
+                        """
+                        
+                        # Add email notification first (so it's still sent even if calendar fails)
+                        additional_note = (f"Interview Round {i+1} ({round_type})\n" 
+                                          f"Scheduled for {start_time.strftime('%A, %B %d, %Y')} at {formatted_time}")
+                            
+                        try:
+                            # Import here to avoid circular imports
+                            from app.utils.email_notification import send_interview_notification
+                            
+                            # Send email notification with proper parameters
+                            send_interview_notification(
+                                recipient_email=candidate_email,
+                                start_time=start_iso,
+                                end_time=end_iso,
+                                meet_link=meet_link,
+                                event_id=event_id,
+                                interviewer_name=interviewer.get('name'),
+                                candidate_name=candidate_name,
+                                job_title=job_role_name,
+                                additional_note=additional_note,
+                                interviewer_email=interviewer.get('email')
+                            )
+                        except Exception as email_error:
+                            print(f"Error sending email notification: {email_error}")
+                            # Continue even if email notification fails
+                            
                         # Try to create an actual calendar event
                         try:
                             # Import here to avoid circular imports
                             from app.utils.calendar_service import create_calendar_event
-                            from app.utils.email_notification import send_interview_notification
-                            
-                            # Create event summary and description
-                            summary = f"Interview: {candidate_name} with {interviewer.get('name')} - Round {i+1} ({round_type})"
-                            
-                            # Safely access job attributes - convert Pydantic model to dict if needed
-                            job_role_name = job.job_role_name if hasattr(job, 'job_role_name') else 'Unknown Position'
-                            
-                            description = f"""
-                            Interview for {candidate_name} ({candidate_email})
-                            Job: {job_role_name}
-                            Round: {i+1} of {no_of_interviews} - {round_type} Round
-                            Interviewer: {interviewer.get('name')} ({interviewer.get('email')})
-                            
-                            Please join using the Google Meet link at the scheduled time.
-                            """
                             
                             # Attempt to create a real calendar event
                             calendar_event = create_calendar_event(
@@ -210,31 +234,17 @@ class InterviewShortlistService:
                                 ]
                             )
                             
-                            if calendar_event:
-                                print(f"Created calendar event: {calendar_event.get('id')}")
-                                event_id = calendar_event.get('id', event_id)
-                                meet_link = calendar_event.get('hangoutLink', meet_link)
-                                html_link = calendar_event.get('htmlLink', f"https://www.google.com/calendar/event?eid={event_id}")
-                                
-                                # Send email notification with proper parameters
-                                additional_note = (f"Interview Round {i+1} ({round_type})\n" 
-                                                  f"Scheduled for {start_time.strftime('%A, %B %d, %Y')} at {formatted_time}")
-                                
-                                send_interview_notification(
-                                    recipient_email=candidate_email,
-                                    start_time=start_iso,
-                                    end_time=end_iso,
-                                    meet_link=meet_link,
-                                    event_id=event_id,
-                                    interviewer_name=interviewer.get('name'),
-                                    candidate_name=candidate_name,
-                                    job_title=job.job_role_name if hasattr(job, 'job_role_name') else 'Unknown Position',
-                                    additional_note=additional_note,
-                                    interviewer_email=interviewer.get('email')
-                                )
+                            print(f"Created calendar event: {calendar_event.get('id')}")
+                            event_id = calendar_event.get('id', event_id)
+                            meet_link = calendar_event.get('hangoutLink', meet_link)
+                            html_link = calendar_event.get('htmlLink', f"https://www.google.com/calendar/event?eid={event_id}")
+                            
                         except Exception as calendar_error:
                             print(f"Error creating calendar event: {calendar_error}")
-                            # Continue with mock data
+                            # Generate a fallback event ID
+                            event_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=20))
+                            html_link = f"https://www.google.com/calendar/event?eid={event_id}"
+                            # Continue with process without calendar event
                     else:
                         # For future rounds, we'll only create placeholder data
                         # These will be scheduled when the previous round is passed
