@@ -85,19 +85,19 @@ class CalendarService:
         Returns:
             Dict containing created event information
         """
-        try:
-            service = CalendarService.get_calendar_service()
+        # try:
+        service = CalendarService.get_calendar_service()
             
             # Generate or use the provided Google Meet link
-            if use_specific_meet_link:
+        if use_specific_meet_link:
                 meet_link = use_specific_meet_link
-            else:
+        else:
                 # Generate a Meet code and link
                 meet_code = CalendarService.generate_meet_code()
                 meet_link = f"https://meet.google.com/{meet_code}"
             
             # Create event with the Meet link in location and description
-            event = {
+        event = {
                 'summary': summary,
                 'location': f"Google Meet: {meet_link}",
                 'description': f"{description}\n\nJoin with Google Meet: {meet_link}",
@@ -118,11 +118,11 @@ class CalendarService:
             }
             
             # Only add attendees if explicitly requested (will only work with Domain-Wide Delegation)
-            if attendees:
-                event['attendees'] = attendees
+        if attendees:
+            event['attendees'] = attendees
             
             # Add the event to the calendar
-            try:
+        try:
                 event = service.events().insert(
                     calendarId=CALENDAR_ID,
                     body=event
@@ -135,7 +135,7 @@ class CalendarService:
                 event['manual_meet_link'] = meet_link
                 
                 return event
-            except Exception as insert_error:
+        except Exception as insert_error:
                 print(f"Error inserting calendar event: {insert_error}")
                 
                 # If error is about attendees, remove them and retry
@@ -157,28 +157,28 @@ class CalendarService:
                 else:
                     # Re-raise other errors
                     raise
-        except Exception as e:
-            print(f"Error creating calendar event: {e}")
+        # except Exception as e:
+        #     print(f"Error creating calendar event: {e}")
             # Return a mock event if we can't create a real one
-            mock_event = {
-                'id': ''.join(random.choices(string.ascii_letters + string.digits, k=20)),
-                'htmlLink': f"https://calendar.google.com/calendar/event?eid=mock-event",
-                'hangoutLink': f"https://meet.google.com/{CalendarService.generate_meet_code()}",
-                'manual_meet_link': f"https://meet.google.com/{CalendarService.generate_meet_code()}",
-                'summary': summary,
-                'description': description,
-                'start': {
-                    'dateTime': start_time.isoformat(),
-                    'timeZone': timezone,
-                },
-                'end': {
-                    'dateTime': end_time.isoformat(),
-                    'timeZone': timezone,
-                },
-                'is_mock': True  # Add flag to indicate this is a mock event
-            }
-            print("Created mock calendar event due to error")
-            return mock_event
+            # mock_event = {
+            #     'id': ''.join(random.choices(string.ascii_letters + string.digits, k=20)),
+            #     'htmlLink': f"https://calendar.google.com/calendar/event?eid=mock-event",
+            #     'hangoutLink': f"https://meet.google.com/{CalendarService.generate_meet_code()}",
+            #     'manual_meet_link': f"https://meet.google.com/{CalendarService.generate_meet_code()}",
+            #     'summary': summary,
+            #     'description': description,
+            #     'start': {
+            #         'dateTime': start_time.isoformat(),
+            #         'timeZone': timezone,
+            #     },
+            #     'end': {
+            #         'dateTime': end_time.isoformat(),
+            #         'timeZone': timezone,
+            #     },
+            #     'is_mock': True  # Add flag to indicate this is a mock event
+            # }
+            # print("Created mock calendar event due to error")
+            # return mock_event
     
     @staticmethod
     def get_events(

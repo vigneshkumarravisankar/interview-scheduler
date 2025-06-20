@@ -462,18 +462,21 @@ class ScheduleInterviewTool(BaseTool):
                                 meet_link = calendar_event.get('hangoutLink', meet_link)
                                 html_link = calendar_event.get('htmlLink', f"https://www.google.com/calendar/event?eid={event_id}")
                             
-                            # Send email notification
+                            # Send email notification with proper parameters
+                            additional_note = (f"Interview Round {i+1} ({round_type})\n" 
+                                              f"Scheduled for {start_time.strftime('%A, %B %d, %Y')} at {formatted_time}")
+                            
                             send_interview_notification(
-                                candidate_name=candidate.name,
                                 recipient_email=candidate.email,
-                                interviewer_name=interviewer.get('name'),
-                                interviewer_email=interviewer.get('email'),
-                                job_title=job.job_role_name if hasattr(job, 'job_role_name') else 'Unknown Position',
-                                start_time=formatted_time,
-                                interview_date=start_time.strftime("%A, %B %d, %Y"),
+                                start_time=start_iso,
+                                end_time=end_iso,
                                 meet_link=meet_link,
-                                round_number=i+1,
-                                round_type=round_type
+                                event_id=event_id,
+                                interviewer_name=interviewer.get('name'),
+                                candidate_name=candidate.name,
+                                job_title=job.job_role_name if hasattr(job, 'job_role_name') else 'Unknown Position',
+                                additional_note=additional_note,
+                                interviewer_email=interviewer.get('email')
                             )
                     except Exception as calendar_error:
                         print(f"Error creating calendar event: {calendar_error}")
