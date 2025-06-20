@@ -10,6 +10,8 @@ import socketio
 from app.api import job_routes, calendar_routes, auth_routes, candidate_routes, interview_routes, response_routes, final_selection_routes, chatbot_routes, agent_routes, shortlist_routes, reschedule_routes, langgraph_routes, resume_routes, integration_routes, specialized_routes
 from app.agents.interview_agent import InterviewAgentSystem, create_interview_crew
 
+from fastapi.middleware.cors import CORSMiddleware
+
 # Load environment variables
 load_dotenv()
 
@@ -26,6 +28,7 @@ app = FastAPI(
     description="API for job posting and interview scheduling",
     version="1.0.0",
 )
+
 
 # CORS middleware
 app.add_middleware(

@@ -58,11 +58,16 @@ class FindJobByRoleTool(BaseTool):
     def _run(self, role_name: str) -> str:
         """Find a job by role name"""
         try:
+            # Validate role name is not empty
+            if not role_name or role_name.strip() == "":
+                return "ERROR: You must provide a specific job role name. Empty role names are not allowed."
+            
             # Query the jobs collection for a job with this role name
+            print(f"Executing FindJobByRole tool with role_name='{role_name}'")
             jobs = FirestoreDB.execute_query("jobs", "job_role_name", "==", role_name)
             
             if not jobs or len(jobs) == 0:
-                return f"No jobs found with role name '{role_name}'"
+                return f"No jobs found with role name '{role_name}'. Please provide a valid role name that exists in the system."
             
             result = f"Found {len(jobs)} jobs matching role '{role_name}':\n\n"
             
@@ -118,11 +123,16 @@ class ShortlistCandidatesByRoleTool(BaseTool):
     def _run(self, role_name: str, number_of_candidates: int = 2) -> str:
         """Find job by role name then shortlist candidates"""
         try:
+            # Validate role name is not empty
+            if not role_name or role_name.strip() == "":
+                return "ERROR: You must provide a specific job role name. Empty role names are not allowed."
+                
             # First find the job by role name
+            print(f"Searching for jobs with exact role name: '{role_name}'")
             jobs = FirestoreDB.execute_query("jobs", "job_role_name", "==", role_name)
             
             if not jobs or len(jobs) == 0:
-                return f"No jobs found with role name '{role_name}'"
+                return f"No jobs found with role name '{role_name}'. Please provide an exact job role name that exists in the system."
             
             # Take the first matching job
             job = jobs[0]
@@ -608,7 +618,16 @@ class GetShortlistedCandidatesTool(BaseTool):
 shortlisting_agent = Agent(
     role="Candidate Shortlisting Specialist",
     goal="Select the best candidates for interviews based on their qualifications and fit scores",
-    backstory="You are an expert in talent acquisition with years of experience identifying the most promising candidates for technical roles. Your job is to analyze candidate profiles and select those who best match the requirements.",
+    backstory="""You are an expert in talent acquisition with years of experience identifying the most promising candidates for technical roles. 
+    
+    IMPORTANT GUIDELINES:
+    1. Only process the exact job role or ID provided by the user
+    2. Do NOT attempt to use empty role names or make up role names
+    3. If no jobs are found with the exact name provided, clearly report this to the user
+    4. When using ShortlistCandidatesByRole, you MUST specify a valid existing role name
+    5. You are NOT to try multiple different job roles when the specified one isn't found
+    
+    Your job is to analyze candidate profiles and select those who best match the requirements for the EXACT job specified.""",
     verbose=True,
     allow_delegation=True,
     llm=llm,
@@ -651,6 +670,8 @@ def create_shortlisting_crew(job_id: str, number_of_candidates: int = 2):
         1. Get the job details to understand the requirements
         2. Get all candidates for this job
         3. Shortlist the top {number_of_candidates} candidates based on AI fit scores
+        
+        IMPORTANT: Process only the exact job ID or role name provided. If no candidates are found for this exact job, return a message indicating no candidates were found. Do NOT attempt to query multiple job roles.
         
         Return the shortlisted candidates with their details.
         """,
@@ -722,6 +743,8 @@ def create_end_to_end_crew(job_id: str, number_of_candidates: int = 2, interview
         2. Get all candidates for this job
         3. Shortlist the top {number_of_candidates} candidates based on AI fit scores
         
+        IMPORTANT: Process only the exact job ID provided. If no candidates are found for this exact job, return a message indicating no candidates were found. Do NOT attempt to query multiple job IDs or role names.
+        
         Return the shortlisted candidates with their details.
         """,
         expected_output=f"List of top {number_of_candidates} candidates for job ID: {job_id}, sorted by AI fit score",
@@ -760,20 +783,101 @@ def create_end_to_end_crew(job_id: str, number_of_candidates: int = 2, interview
     return crew
 
 # Functions to run the specific processes
-def run_shortlisting_process(job_id: str, number_of_candidates: int = 2):
-    """Run the shortlisting process for a job"""
+def run_shortlisting_process(job_id: str = None, job_role_name: str = None, number_of_candidates: int = 2):
+    """Run the shortlisting process for a job
+    
+    Args:
+        job_id: Optional job ID. If provided, this takes precedence over job_role_name
+        job_role_name: Optional job role name. Used if job_id is not provided
+        number_of_candidates: Number of candidates to shortlist
+        
+    Returns:
+        Result from the crew execution
+    """
+    # Validate that at least one identifier is provided
+    if not job_id and not job_role_name:
+        return "Error: Either job_id or job_role_name must be provided"
+        
+    # If job_id is not provided but job_role_name is, try to find the job_id
+    if not job_id and job_role_name:
+        print(f"Looking up job_id for role: '{job_role_name}'")
+        jobs = FirestoreDB.execute_query("jobs", "job_role_name", "==", job_role_name)
+        if jobs and len(jobs) > 0:
+            job = jobs[0]
+            job_id = job.get('id', job.get('job_id'))
+            print(f"Found job_id: {job_id} for role: {job_role_name}")
+        else:
+            return f"Error: No job found with role name '{job_role_name}'"
+    
+    # Now create the crew with the job_id
+    print(f"Creating shortlisting crew for job_id: {job_id}")
     crew = create_shortlisting_crew(job_id, number_of_candidates)
     result = crew.kickoff()
     return result
 
-def run_scheduling_process(job_id: str, interview_date: str = None, number_of_rounds: int = 2):
-    """Run the scheduling process for shortlisted candidates"""
+def run_scheduling_process(job_id: str = None, job_role_name: str = None, interview_date: str = None, number_of_rounds: int = 2):
+    """Run the scheduling process for shortlisted candidates
+    
+    Args:
+        job_id: Optional job ID. If provided, this takes precedence over job_role_name
+        job_role_name: Optional job role name. Used if job_id is not provided
+        interview_date: Optional date for the interview (YYYY-MM-DD format)
+        number_of_rounds: Number of interview rounds to schedule
+        
+    Returns:
+        Result from the crew execution
+    """
+    # Validate that at least one identifier is provided
+    if not job_id and not job_role_name:
+        return "Error: Either job_id or job_role_name must be provided"
+        
+    # If job_id is not provided but job_role_name is, try to find the job_id
+    if not job_id and job_role_name:
+        print(f"Looking up job_id for role: '{job_role_name}'")
+        jobs = FirestoreDB.execute_query("jobs", "job_role_name", "==", job_role_name)
+        if jobs and len(jobs) > 0:
+            job = jobs[0]
+            job_id = job.get('id', job.get('job_id'))
+            print(f"Found job_id: {job_id} for role: {job_role_name}")
+        else:
+            return f"Error: No job found with role name '{job_role_name}'"
+    
+    # Now create the crew with the job_id
+    print(f"Creating scheduling crew for job_id: {job_id}")
     crew = create_scheduling_crew(job_id, interview_date, number_of_rounds)
     result = crew.kickoff()
     return result
 
-def run_end_to_end_process(job_id: str, number_of_candidates: int = 2, interview_date: str = None, number_of_rounds: int = 2):
-    """Run the entire process from shortlisting to scheduling"""
+def run_end_to_end_process(job_id: str = None, job_role_name: str = None, number_of_candidates: int = 2, interview_date: str = None, number_of_rounds: int = 2):
+    """Run the entire process from shortlisting to scheduling
+    
+    Args:
+        job_id: Optional job ID. If provided, this takes precedence over job_role_name
+        job_role_name: Optional job role name. Used if job_id is not provided
+        number_of_candidates: Number of candidates to shortlist
+        interview_date: Optional date for the interview (YYYY-MM-DD format)
+        number_of_rounds: Number of interview rounds to schedule
+        
+    Returns:
+        Result from the crew execution
+    """
+    # Validate that at least one identifier is provided
+    if not job_id and not job_role_name:
+        return "Error: Either job_id or job_role_name must be provided"
+        
+    # If job_id is not provided but job_role_name is, try to find the job_id
+    if not job_id and job_role_name:
+        print(f"Looking up job_id for role: '{job_role_name}'")
+        jobs = FirestoreDB.execute_query("jobs", "job_role_name", "==", job_role_name)
+        if jobs and len(jobs) > 0:
+            job = jobs[0]
+            job_id = job.get('id', job.get('job_id'))
+            print(f"Found job_id: {job_id} for role: {job_role_name}")
+        else:
+            return f"Error: No job found with role name '{job_role_name}'"
+    
+    # Now create the crew with the job_id
+    print(f"Creating end-to-end process for job_id: {job_id}")
     crew = create_end_to_end_crew(job_id, number_of_candidates, interview_date, number_of_rounds)
     result = crew.kickoff()
     return result

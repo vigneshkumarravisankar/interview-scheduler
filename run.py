@@ -4,6 +4,7 @@ Interview Scheduler Agent - Entry point for the API application
 import os
 import uvicorn
 from dotenv import load_dotenv
+from fastapi.middleware.cors import CORSMiddleware
 
 # Load environment variables from .env file
 load_dotenv()
@@ -31,6 +32,8 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     host = os.getenv("HOST", "0.0.0.0") 
     reload = os.getenv("RELOAD", "True").lower() == "true"
+    
+    origins = ["*"]
     
     # Print startup message
     print("\n" + "="*80)

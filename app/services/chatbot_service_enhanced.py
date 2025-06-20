@@ -29,6 +29,11 @@ from app.agents.specialized_agents import (
     run_scheduling_process, 
     run_end_to_end_process
 )
+from app.agents.job_agents import (
+    run_job_creation_process,
+    run_job_retrieval_process,
+    run_resume_processing_process
+)
 
 
 class ChatbotServiceEnhanced:
@@ -145,6 +150,47 @@ class ChatbotServiceEnhanced:
             },
             
             # SPECIALIZED AGENT ENDPOINTS - New direct agent integrations
+            # Job Management Agents
+            {
+                "path": "/agents/create-job",
+                "method": "POST",
+                "description": "Run the AI agent to create a new job posting",
+                "function": run_job_creation_process,
+                "params": {
+                    "job_details": "object"
+                },
+                "keywords": [
+                    "create job", "add job", "new job", "post job", "create position",
+                    "add position", "new posting", "job posting", "add opening", "new role"
+                ]
+            },
+            {
+                "path": "/agents/get-jobs",
+                "method": "GET",
+                "description": "Run the AI agent to retrieve job information",
+                "function": run_job_retrieval_process,
+                "params": {
+                    "job_id": "string"
+                },
+                "keywords": [
+                    "get jobs", "list jobs", "show jobs", "find jobs", "job listings",
+                    "available jobs", "job details", "view jobs", "job info", "job information"
+                ]
+            },
+            {
+                "path": "/agents/process-resumes",
+                "method": "POST",
+                "description": "Run the AI agent to process resume data for a job",
+                "function": run_resume_processing_process,
+                "params": {
+                    "job_id": "string"
+                },
+                "keywords": [
+                    "process resumes", "analyze resumes", "review candidates", "check applications",
+                    "parse resumes", "candidate data", "resume analysis", "applicant review"
+                ]
+            },
+            # Interview Management Agents
             {
                 "path": "/agents/shortlist",
                 "method": "POST",
@@ -415,6 +461,12 @@ You are now ready to help users interact with the Interview Scheduler API and it
             Dictionary with intent categories and their confidence scores
         """
         intent_categories = {
+            # Job management categories
+            "create_job": ["create job", "add job", "new job", "post job", "add position", "new role", "job posting"],
+            "get_jobs": ["get jobs", "list jobs", "show jobs", "find jobs", "job listings", "job details", "view jobs"],
+            "process_resumes": ["process resumes", "analyze resumes", "review candidates", "candidate data", "resume analysis"],
+            
+            # Interview management categories
             "shortlist": ["shortlist", "select", "choose", "best candidate", "top candidate", "pick", "filter"],
             "schedule": ["schedule", "book", "calendar", "interview time", "interview slot", "arrange meeting", "set up interview"],
             "end_to_end": ["end to end", "full process", "complete process", "entire process", "shortlist and schedule", "both"]
@@ -469,19 +521,23 @@ You are now ready to help users interact with the Interview Scheduler API and it
                 break
         
         # Match endpoint to category
-        if prioritized_category == "shortlist":
+        category_endpoint_map = {
+            # Job management
+            "create_job": "/agents/create-job",
+            "get_jobs": "/agents/get-jobs",
+            "process_resumes": "/agents/process-resumes",
+            
+            # Interview management
+            "shortlist": "/agents/shortlist",
+            "schedule": "/agents/schedule",
+            "end_to_end": "/agents/end-to-end"
+        }
+        
+        # Check if we have a priority category match
+        if prioritized_category and prioritized_category in category_endpoint_map:
+            target_path = category_endpoint_map[prioritized_category]
             for endpoint in specialized_endpoints:
-                if endpoint["path"] == "/agents/shortlist":
-                    return endpoint
-                    
-        elif prioritized_category == "schedule":
-            for endpoint in specialized_endpoints:
-                if endpoint["path"] == "/agents/schedule":
-                    return endpoint
-                    
-        elif prioritized_category == "end_to_end":
-            for endpoint in specialized_endpoints:
-                if endpoint["path"] == "/agents/end-to-end":
+                if endpoint["path"] == target_path:
                     return endpoint
         
         # If no clear intent match, do keyword matching directly
@@ -582,7 +638,69 @@ You are now ready to help users interact with the Interview Scheduler API and it
         params = agent_endpoint["params"]
         extracted_params = {}
         
-        # Use OpenAI to extract parameters
+        # Special handling for job creation
+        if agent_endpoint["path"] == "/agents/create-job":
+            # Use OpenAI to extract job details with exact schema
+            prompt = f"""
+            Extract the complete job details from this text:
+            
+            Text: "{message}"
+            
+            Return ONLY a JSON object that precisely follows this schema:
+            {{
+              "job_details": {{
+                "job_role_name": "", // Required: The title of the position
+                "job_description": "", // Required: Detailed description of responsibilities
+                "years_of_experience_needed": "", // Required: Experience required in format like "3-5 years"
+                "location": "", // Required: Location of the job
+                "status": "open" // Default to "open"
+              }}
+            }}
+            
+            Extract as much detail as possible from the text and ensure the values accurately reflect the job posting information.
+            """
+            
+            try:
+                client = openai.OpenAI()
+                extraction_response = client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1
+                )
+                
+                extraction_text = extraction_response.choices[0].message.content
+                
+                # Extract JSON from the response
+                json_match = re.search(r'```json\s*([\s\S]*?)\s*```|({[\s\S]*?})', extraction_text)
+                if json_match:
+                    json_content = json_match.group(1) or json_match.group(2)
+                    job_data = json.loads(json_content)
+                else:
+                    job_data = json.loads(extraction_text)
+                
+                # Make sure we have the job_details object
+                if "job_details" in job_data:
+                    extracted_params = {"job_details": job_data["job_details"]}
+                else:
+                    extracted_params = {"job_details": job_data}
+                
+                print(f"Extracted job details: {extracted_params}")
+                return extracted_params
+            except Exception as e:
+                logging.error(f"Error extracting job details: {str(e)}")
+                # Create default values if extraction fails
+                extracted_params = {
+                    "job_details": {
+                        "job_role_name": "Software Engineer",
+                        "job_description": "Default job description extracted from user query",
+                        "years_of_experience_needed": "0-3 years",
+                        "location": "Remote",
+                        "status": "open"
+                    }
+                }
+                return extracted_params
+        
+        # Normal parameter extraction for other agents
         prompt = f"""
         Extract parameters from the user message for the specialized agent call:
         
