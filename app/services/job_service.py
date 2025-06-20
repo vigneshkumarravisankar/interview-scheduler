@@ -70,19 +70,21 @@ class JobService:
 
             # Get the document from Firestore
             doc = FirestoreDB.get_document(JobService.COLLECTION_NAME, job_id)
-            
+            print("fetching doc :")
             # If document exists and has all required fields, create JobPostingResponse
             if doc:
+                print("doc available:")
                 # Check for required fields
                 required_fields = ["job_role_name", "job_description", "years_of_experience_needed"]
                 missing_fields = [field for field in required_fields if field not in doc]
                 
                 if missing_fields:
+                    print("missinf fields")
                     print(f"Warning: Missing required fields in job document: {missing_fields}")
                     # Add default values for missing fields
                     for field in missing_fields:
                         if field == "job_role_name":
-                            doc["job_role_name"] = f"Job {job_id}"
+                            doc["job_role_name"] = f"{"job_role_name"}"
                         elif field == "job_description":
                             doc["job_description"] = "No description provided"
                         elif field == "years_of_experience_needed":
@@ -90,8 +92,11 @@ class JobService:
                 
                 # Ensure job_id is included
                 if "job_id" not in doc:
+                    print("job id not in doc")
                     doc["job_id"] = job_id
                     
+                    
+                print("doc: ",doc)
                 return JobPostingResponse(**doc)
             return None
         except Exception as e:

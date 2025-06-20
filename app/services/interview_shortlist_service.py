@@ -54,6 +54,10 @@ class InterviewShortlistService:
                     job_id
                 )
                 
+                
+               
+                print('candidates list',candidates)
+                
                 if not candidates:
                     print(f"No candidates found using direct query. Falling back to service method.")
                     candidates = CandidateService.get_candidates_by_job_id(job_id)
@@ -62,17 +66,17 @@ class InterviewShortlistService:
                 candidates = CandidateService.get_candidates_by_job_id(job_id)
             
             # Generate emergency candidates if none found
-            if not candidates:
-                print(f"No candidates found for job {job_id}, creating emergency candidates")
-                # Create emergency candidates
-                emergency_candidates = InterviewShortlistService._create_emergency_candidates(job_id, number_of_candidates)
+            # if not candidates:
+            #     print(f"No candidates found for job {job_id}, creating emergency candidates")
+            #     # Create emergency candidates
+            #     emergency_candidates = InterviewShortlistService._create_emergency_candidates(job_id, number_of_candidates)
                 
-                # Save the emergency candidates to database
-                for candidate in emergency_candidates:
-                    candidate_id = CandidateService.create_candidate(candidate)
-                    candidate["id"] = candidate_id
+            #     # Save the emergency candidates to database
+            #     for candidate in emergency_candidates:
+            #         candidate_id = CandidateService.create_candidate(candidate)
+            #         candidate["id"] = candidate_id
                 
-                candidates = emergency_candidates
+            #     candidates = emergency_candidates
             
             # Sort candidates by AI fit score (descending)
             try:

@@ -211,11 +211,15 @@ class FirestoreDB:
         Get a document by its ID
         """
         try:
+            print("inside get document")
+            print("collection name",collection_name)
             doc_ref = db.collection(collection_name).document(doc_id)
+            print("doc_ref: ",doc_ref)
             doc = doc_ref.get()
             if doc.exists:
+                print("doc available")
+                print(doc.to_dict())
                 return doc.to_dict()
-            return None
         except Exception as e:
             print(f"Error getting document: {e}")
             # Return mock data for testing
