@@ -1,37 +1,38 @@
 # FastAPI and related
-fastapi==0.115.9
-uvicorn[standard]==0.30.6
-pydantic==2.9.2
-pydantic[email]==2.9.2
-email-validator==2.0.0
-python-dotenv==1.0.1
+fastapi
+uvicorn[standard]
+pydantic
+pydantic[email]
+email-validator
+python-dotenv
 
 # Firebase
-firebase-admin==6.9.0
+firebase-admin
 
 # AI/ML libraries
-crewai==0.130.0
-langchain==0.2.14
-langchain-openai==0.1.25
-langchain-core==0.2.43
-langgraph==0.4.5
-openai==1.88.0
+crewai
+langchain
+langchain-openai
+langchain-core
+langchain-community
+langgraph
+openai
 
 # Google APIs
-google-api-python-client==2.172.0
-google-auth==2.34.0
-google-auth-httplib2==0.2.0
-google-auth-oauthlib==1.2.0
-google-cloud-storage==3.1.0
+google-api-python-client
+google-auth
+google-auth-httplib2
+google-auth-oauthlib
+google-cloud-storage
 
 # PDF processing
-pdfplumber==0.10.4
-pypdf==4.1.0
-pdf2image==1.17.0
-reportlab==4.0.8  # For generating PDF documents
+pdfplumber
+pypdf
+pdf2image
+reportlab  # For generating PDF documents
 
 # Utilities
-requests==2.32.3
-pytest==8.2.6
-httpx==0.28.1
-uuid==1.30
+requests
+pytest
+httpx
+uuid

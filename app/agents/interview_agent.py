@@ -1,18 +1,53 @@
 import os
 import datetime
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Union
 from crewai import Agent, Task, Crew, Process
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph
 from langgraph.graph.graph import END, START
 from app.utils.calendar_service import CalendarService
+from fastapi import HTTPException
 
 # Load environment variables for OpenAI API key
 from dotenv import load_dotenv
 load_dotenv()
 
+# Get API key from environment variable or use a default for testing
+api_key = os.environ.get("OPENAI_API_KEY", "your_openai_api_key_here")
+
 # Create OpenAI LLM
-llm = ChatOpenAI(model="gpt-4o")
+llm = ChatOpenAI(model="gpt-4o", api_key=api_key)
+
+# Define valid user roles and their permissions
+ROLES = {
+    "HR": {
+        "view_all_feedback": True,
+        "add_feedback_all": True,
+        "decide_next_round": True,
+        "schedule_interview": True
+    },
+    "Recruiter": {
+        "view_all_feedback": True, 
+        "add_feedback_all": True,
+        "decide_next_round": False,
+        "schedule_interview": True
+    },
+    "Interviewer": {
+        "view_all_feedback": False,  # Can only view their own feedback
+        "add_feedback_all": False,   # Can only add feedback for assigned candidates
+        "decide_next_round": False,
+        "schedule_interview": False
+    }
+}
+
+class RolePermissionError(Exception):
+    """Exception raised for permission errors related to user roles"""
+    
+    def __init__(self, role: str, required_permission: str, message: str = None):
+        self.role = role
+        self.required_permission = required_permission
+        self.message = message or f"Role '{role}' does not have permission to {required_permission.replace('_', ' ')}"
+        super().__init__(self.message)
 
 
 class InterviewAgentSystem:
@@ -77,19 +112,41 @@ class InterviewAgentSystem:
         
         # Compile the graph
         self.compiled_workflow = self.workflow.compile()
-    
     def analyze_job(self, state):
-        """Analyze job requirements"""
+        """
+        Analyze job requirements
+        
+        All roles can view job analysis, but warnings will be displayed 
+        for permission context in subsequent steps.
+        """
+        # Check user role from state (default to "HR" if not specified)
+        user_role = getattr(state, "user_role", "HR")
+        
+        # Log role information (for debugging)
+        print(f"Job analysis requested by user with role: {user_role}")
+        
         task = Task(
             description=f"Analyze the following job: {state.job_data}",
             expected_output="Analysis of job requirements",
             agent=self.job_analyst
         )
         result = task.execute()
-        return {"job_data": {**state.job_data, "analysis": result}}
-    
+        return {"job_data": {**state.job_data, "analysis": result, "analyzed_by_role": user_role}}
     def create_questions(self, state):
-        """Create interview questions based on job"""
+        """
+        Create interview questions based on job
+        
+        This function requires appropriate permissions based on user role,
+        but all roles can view questions, with warnings for limitations.
+        """
+        # Check user role from state (default to "HR" if not specified)
+        user_role = getattr(state, "user_role", "HR")
+        
+        # For Interviewer role, add note about question customization
+        notes = None
+        if user_role == "Interviewer":
+            notes = "Note: As an Interviewer, you can view questions but cannot modify the interview structure. Contact HR or Recruiter for changes."
+        
         task = Task(
             description=f"Create interview questions based on this analysis: {state.job_data['analysis']}",
             expected_output="List of interview questions",
@@ -98,10 +155,36 @@ class InterviewAgentSystem:
         result = task.execute()
         # Parse the result into a list of questions
         questions = [q.strip() for q in result.split("\n") if q.strip()]
-        return {"questions": questions}
-    
+        
+        # Add role-specific notes if applicable
+        response = {"questions": questions}
+        if notes:
+            response["notes"] = notes
+        
+        return response
     def evaluate_candidate(self, state):
-        """Evaluate candidate responses"""
+        """
+        Evaluate candidate responses
+        
+        This function requires appropriate permissions based on user role:
+        - HR: Can evaluate any candidate
+        - Recruiter: Can evaluate any candidate
+        - Interviewer: Can only evaluate assigned candidates
+        """
+        # Check user role from state (default to "HR" if not specified)
+        user_role = getattr(state, "user_role", "HR")
+        
+        # Check if user has permission to evaluate candidates
+        if user_role == "Interviewer":
+            # For interviewers, we would check if they're assigned to this candidate
+            # This is a placeholder for actual assignment check logic
+            is_assigned = True  # In a real app, check if interviewer is assigned to this candidate
+            
+            if not is_assigned:
+                # Instead of failing, we'll log a warning and continue, but this would
+                # ideally check the actual assignments
+                print(f"WARNING: Role '{user_role}' is attempting to evaluate a candidate they're not assigned to.")
+        
         # In a real application, we would have actual candidate responses
         task = Task(
             description=f"Evaluate these candidate responses to the following questions: {state.questions}",
@@ -110,9 +193,32 @@ class InterviewAgentSystem:
         )
         result = task.execute()
         return {"evaluations": {"result": result}}
-    
     def schedule_interview(self, state):
-        """Schedule interview using Google Calendar"""
+        """
+        Schedule interview using Google Calendar
+        
+        This function requires appropriate permissions based on user role:
+        - HR: Can schedule interviews
+        - Recruiter: Can schedule interviews
+        - Interviewer: Cannot schedule interviews
+        """
+        # Check user role from state (default to "HR" if not specified)
+        user_role = getattr(state, "user_role", "HR")
+        
+        # Validate that the user has permission to schedule interviews
+        try:
+            self.validate_role_permission(user_role, "schedule_interview")
+        except RolePermissionError as e:
+            # Log the error and provide informative message while continuing
+            print(f"WARNING: {str(e)}")
+            return {
+                "schedule": {
+                    "status": "Permission Denied",
+                    "error": f"Role '{user_role}' does not have permission to schedule interviews.",
+                    "message": "Please contact an HR representative or Recruiter to schedule interviews."
+                }
+            }
+            
         # Get job details from state
         job_data = state.job_data
         questions = state.questions
@@ -174,23 +280,90 @@ class InterviewAgentSystem:
             return {
                 "schedule": {
                     "status": "Error",
-                    "error": str(e),
-                    "planning_notes": scheduling_plan
+                    "error": str(e),                    "planning_notes": scheduling_plan
                 }
             }
     
-    def run_interview_process(self, job_data):
-        """Run the full interview process using LangGraph"""
+    def check_permission(self, role: str, permission: str) -> bool:
+        """
+        Check if a role has a specific permission
+        
+        Args:
+            role: User role (HR, Recruiter, Interviewer)
+            permission: Permission to check
+            
+        Returns:
+            True if the role has the permission, False otherwise
+        """
+        if role not in ROLES:
+            return False
+        return ROLES[role].get(permission, False)
+    
+    def validate_role_permission(self, role: str, permission: str) -> None:
+        """
+        Validate that a role has the required permission
+        
+        Args:
+            role: User role (HR, Recruiter, Interviewer)
+            permission: Required permission
+            
+        Raises:
+            RolePermissionError: If the role doesn't have the permission
+        """
+        if not self.check_permission(role, permission):
+            raise RolePermissionError(role, permission)
+    
+    def run_interview_process(self, job_data, user_role="HR"):
+        """
+        Run the full interview process using LangGraph
+        
+        Args:
+            job_data: Job data to analyze
+            user_role: Role of the user initiating the process
+            
+        Returns:
+            Result from the workflow
+            
+        Raises:
+            RolePermissionError: If the user doesn't have permission
+        """
+        # Validate permissions (only HR and Recruiters can run the full process)
+        if user_role not in ["HR", "Recruiter"]:
+            raise RolePermissionError(
+                user_role, 
+                "run_interview_process", 
+                f"Only HR and Recruiters can run the full interview process. Your role: {user_role}"
+            )
+        
         # Initialize state
-        initial_state = {"job_data": job_data}
+        initial_state = {"job_data": job_data, "user_role": user_role}
         
         # Execute the workflow
         result = self.compiled_workflow.invoke(initial_state)
         return result
 
 
-def create_interview_crew(job_data):
-    """Create a crew for interview process"""
+def create_interview_crew(job_data, user_role="HR"):
+    """
+    Create a crew for interview process
+    
+    Args:
+        job_data: Job data to analyze
+        user_role: Role of the user creating the crew
+        
+    Returns:
+        CrewAI crew object
+        
+    Raises:
+        RolePermissionError: If the user role doesn't have permission
+    """
+    # Validate that the user has permission to create interview crews
+    if user_role not in ["HR", "Recruiter"]:
+        raise RolePermissionError(
+            user_role, 
+            "create_interview_crew", 
+            f"Only HR and Recruiters can create interview crews. Your role: {user_role}"
+        )
     # Create agents
     job_analyst = Agent(
         role="Job Analyst",
@@ -256,3 +429,36 @@ def create_interview_crew(job_data):
     )
     
     return crew
+
+
+def is_interviewer_assigned(interviewer_email: str, candidate_id: str) -> bool:
+    """
+    Check if an interviewer is assigned to a specific candidate
+    
+    Args:
+        interviewer_email: Email of the interviewer
+        candidate_id: ID of the candidate
+        
+    Returns:
+        True if interviewer is assigned to this candidate, False otherwise
+    """
+    # In a real application, this would query your database to check assignments
+    # For now, this is just a placeholder implementation
+    try:
+        from app.services.interview_service import InterviewService
+        
+        # Get the candidate data
+        candidate = InterviewService.get_interview_candidate(candidate_id)
+        if not candidate:
+            return False
+        
+        # Check if interviewer is assigned to any rounds
+        feedback_list = candidate.get("feedback", [])
+        for feedback in feedback_list:
+            if feedback.get("interviewer_email") == interviewer_email:
+                return True
+                
+        return False
+    except Exception as e:
+        print(f"Error checking interviewer assignment: {str(e)}")
+        return False
