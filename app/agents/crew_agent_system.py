@@ -26,6 +26,7 @@ from app.services.candidate_service import CandidateService
 from app.schemas.job_schema import JobPostingCreate, JobPostingResponse
 from app.schemas.candidate_schema import CandidateResponse
 from app.agents.firebase_context_tool import GetInterviewCandidatesTool, GetJobsTool, GetCandidatesTool
+from app.agents.calendar_agent_tool import ScheduleInterviewTool, RescheduleInterviewTool, GetCalendarAvailabilityTool
 from app.database.firebase_db import FirestoreDB
 
 # Set up logging
@@ -708,6 +709,11 @@ class CrewAgentSystem:
             tools=[]
         )
         
+        # Create calendar tools
+        schedule_interview_tool = ScheduleInterviewTool()
+        reschedule_interview_tool = RescheduleInterviewTool()
+        calendar_availability_tool = GetCalendarAvailabilityTool()
+        
         self.scheduler = Agent(
             role="Interview Scheduling Coordinator",
             goal="Efficiently schedule interviews considering all parties' availability",
@@ -715,7 +721,14 @@ class CrewAgentSystem:
             verbose=True,
             allow_delegation=True,
             llm=llm,
-            tools=[shortlist_tool, reschedule_tool, interview_context_tool, jobs_context_tool, candidates_context_tool]
+            tools=[
+                # Database context tools
+                interview_context_tool, jobs_context_tool, candidates_context_tool,
+                # Calendar operation tools
+                calendar_availability_tool, schedule_interview_tool, reschedule_interview_tool,
+                # Core scheduler tools
+                shortlist_tool, reschedule_tool
+            ]
         )
         
         # Create the crew
