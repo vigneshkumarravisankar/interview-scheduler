@@ -310,12 +310,117 @@ class GetJobDetailsTool(BaseTool):
 #-----------------------
 # Scheduling Agent Tools
 #-----------------------
+# Import advanced calendar tools
+from app.utils.calendar_service import CalendarService, create_calendar_event
+from datetime import datetime, timedelta, timezone
+from typing import List, Dict, Any, Optional
+import random
+import string
+
 class ScheduleInterviewTool(BaseTool):
     name: str = "ScheduleInterview"
-    description: str = "Schedule an interview for a shortlisted candidate using Calendar MCP Server"
+    description: str = "Schedule an interview for a shortlisted candidate with automatic calendar availability checking"
+    
+    def generate_time_slots(self, start_time_str, end_time_str, slot_duration_minutes=30):
+        """Generate time slots within a time range"""
+        if isinstance(start_time_str, str):
+            start_dt = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
+        else:
+            start_dt = start_time_str
+            
+        if isinstance(end_time_str, str):
+            end_dt = datetime.fromisoformat(end_time_str.replace('Z', '+00:00'))
+        else:
+            end_dt = end_time_str
+            
+        slots = []
+        current = start_dt
+        while current + timedelta(minutes=slot_duration_minutes) <= end_dt:
+            slot_start = current
+            slot_end = current + timedelta(minutes=slot_duration_minutes)
+            slots.append((slot_start, slot_end))
+            current += timedelta(minutes=slot_duration_minutes)
+            
+        return slots
+    
+    def get_busy_slots(self, email, start_time, end_time):
+        """Get busy time slots for an email address"""
+        try:
+            # Using CalendarService to find busy slots
+            service = CalendarService.get_calendar_service()
+            
+            # Format times for API
+            if isinstance(start_time, datetime):
+                start_time = start_time.isoformat()
+            if isinstance(end_time, datetime):
+                end_time = end_time.isoformat()
+                
+            events = CalendarService.get_events(
+                time_min=datetime.fromisoformat(start_time.replace('Z', '+00:00')),
+                time_max=datetime.fromisoformat(end_time.replace('Z', '+00:00')),
+                max_results=100
+            )
+            
+            busy_slots = []
+            for event in events:
+                start = event['start'].get('dateTime')
+                end = event['end'].get('dateTime')
+                
+                if start and end:
+                    busy_slots.append({
+                        'start': start,
+                        'end': end
+                    })
+                    
+            print(f"📛 Found {len(busy_slots)} busy slots for {email}")
+            return busy_slots
+        except Exception as e:
+            print(f"Error getting busy slots: {e}")
+            return []
+    
+    def compute_bitmasks(self, busy_times_list, time_slots):
+        """Compute availability bitmasks based on busy times"""
+        bitmasks = []
+        
+        for busy_times in busy_times_list:
+            bitmask = []
+            for slot_start, slot_end in time_slots:
+                # Slot times are already datetime objects
+                
+                is_busy = False
+                for busy in busy_times:
+                    # Parse busy times if they're strings
+                    if isinstance(busy["start"], str):
+                        busy_start = datetime.fromisoformat(busy["start"].replace('Z', '+00:00'))
+                    else:
+                        busy_start = busy["start"]
+                        
+                    if isinstance(busy["end"], str):
+                        busy_end = datetime.fromisoformat(busy["end"].replace('Z', '+00:00'))
+                    else:
+                        busy_end = busy["end"]
+
+                    # Check overlap
+                    if slot_start < busy_end and slot_end > busy_start:
+                        is_busy = True
+                        break
+
+                bitmask.append(0 if is_busy else 1)
+            bitmasks.append(bitmask)
+            
+        return bitmasks
+    
+    def secure_bitmask_intersection(self, bitmasks):
+        """Find common available slots using bitmask intersection"""
+        length = len(bitmasks[0])
+        intersection = [1] * length
+        for mask in bitmasks:
+            for i in range(length):
+                intersection[i] = intersection[i] & mask[i]
+        return intersection
     
     def _run(self, job_id: str, candidate_id: str, interview_date: str = None, number_of_rounds: int = 2) -> str:
-        """Schedule an interview for a candidate using Calendar MCP Server"""
+        """Schedule an interview with smart calendar checking to find available slots"""
         try:
             # Get candidate details
             candidate = CandidateService.get_candidate(candidate_id)
@@ -327,9 +432,14 @@ class ScheduleInterviewTool(BaseTool):
             if not job:
                 return f"Job with ID {job_id} not found"
             
-            # Parse interview date (format: YYYY-MM-DD)
+            # Parse or set default interview date
             try:
-                interview_date_dt = datetime.strptime(interview_date, "%Y-%m-%d")
+                if interview_date:
+                    interview_date_dt = datetime.strptime(interview_date, "%Y-%m-%d")
+                else:
+                    # Default to tomorrow
+                    interview_date_dt = datetime.now() + timedelta(days=1)
+                    interview_date = interview_date_dt.strftime("%Y-%m-%d")
             except ValueError:
                 return f"Invalid date format. Please use YYYY-MM-DD format."
             
@@ -351,7 +461,75 @@ class ScheduleInterviewTool(BaseTool):
             # Create feedback array with proper structure
             feedback_array = []
             
-            # For each round, schedule an interview
+            # Collect interviewer emails
+            interviewer_emails = []
+            for i in range(number_of_rounds):
+                round_type = round_types[i] if i < len(round_types) else "Technical"
+                interviewer = interviewer_assignments[i] if i < len(interviewer_assignments) else {
+                    "id": "", 
+                    "name": f"{round_type} Interviewer",
+                    "email": f"{round_type.lower()}_interviewer@example.com",
+                    "department": {
+                        "Technical": "Engineering", 
+                        "Manager": "Management", 
+                        "HR": "Human Resources"
+                    }.get(round_type, "Engineering")
+                }
+                
+                interviewer_emails.append(interviewer.get("email"))
+            
+            print(f"📧 Scheduling interview with interviewers: {interviewer_emails} and candidate: {candidate.email}")
+            
+            # Define interview window (8-hour window starting at 9AM)
+            interview_date_dt = interview_date_dt.replace(hour=9, minute=0, second=0, microsecond=0)
+            start_window = interview_date_dt
+            end_window = interview_date_dt.replace(hour=17, minute=0, second=0, microsecond=0)
+            
+            # Generate 30-minute time slots for the day
+            print(f"⏰ Generating time slots from {start_window} to {end_window}")
+            time_slots = self.generate_time_slots(start_window, end_window, 30)
+            
+            # Get busy slots for all interviewers and candidate
+            busy_times = []
+            for email in interviewer_emails:
+                busy = self.get_busy_slots(email, start_window, end_window)
+                busy_times.append(busy)
+                
+            # Add candidate busy times if available
+            candidate_busy = self.get_busy_slots(candidate.email, start_window, end_window)
+            if candidate_busy:
+                busy_times.append(candidate_busy)
+            
+            # Compute availability bitmasks
+            interviewer_masks = self.compute_bitmasks(busy_times, time_slots)
+            
+            # Find common available slots
+            common_slots = self.secure_bitmask_intersection(interviewer_masks)
+            
+            # Find first available slot
+            chosen_slot_index = -1
+            for i, is_available in enumerate(common_slots):
+                if is_available == 1:
+                    chosen_slot_index = i
+                    break
+            
+            if chosen_slot_index >= 0:
+                # We found an available slot
+                chosen_slot = time_slots[chosen_slot_index]
+                start_time, end_time = chosen_slot
+                
+                # Add 30 more minutes for a 1-hour interview
+                if chosen_slot_index + 1 < len(common_slots) and common_slots[chosen_slot_index + 1] == 1:
+                    end_time = time_slots[chosen_slot_index + 1][1]
+                
+                print(f"🎯 Found available slot: {start_time} - {end_time}")
+            else:
+                # No common slot found - use default time
+                print("❌ No common available slot found. Using default time.")
+                start_time = interview_date_dt.replace(hour=10, minute=0, second=0, microsecond=0)
+                end_time = start_time + timedelta(hours=1)
+            
+            # For each round, schedule an interview with found time slots
             created_records = []
             
             for i in range(number_of_rounds):
@@ -375,13 +553,12 @@ class ScheduleInterviewTool(BaseTool):
                 
                 # Only schedule first round initially
                 if i == 0:
-                    # Calculate interview time - first round is 1 day ahead
-                    days_ahead = 1
-                    interview_dt = interview_date_dt + timedelta(days=days_ahead)
-                    
-                    # Set interview time to working hours (9AM - 5PM)
-                    start_time = interview_dt.replace(hour=10 + (i % 6), minute=0, second=0, microsecond=0)
-                    end_time = start_time + timedelta(hours=1)  # 1 hour interview
+                    # Calculate round time (use the found availability)
+                    # Add days based on the round if we're scheduling multiple rounds on separate days
+                    if i > 0:
+                        # For rounds after the first, add days
+                        start_time = start_time + timedelta(days=i)
+                        end_time = end_time + timedelta(days=i)
                     
                     # Format dates in ISO format with timezone
                     start_iso = start_time.strftime("%Y-%m-%dT%H:%M:%S+05:30")
@@ -416,78 +593,53 @@ class ScheduleInterviewTool(BaseTool):
                     Please join using the Google Meet link at the scheduled time.
                     """
                     
-                    # Create a calendar event - first try using Calendar MCP Server
+                    # Create calendar event using our enhanced CalendarService
                     try:
-                        # Try to use the Calendar MCP Server
-                        mcp_calendar_success = False
-                        try:
-                            # Call Calendar MCP Server
-                            import requests
-                            mcp_server_url = "http://localhost:8501"  # Default port for calendar-mcp-server
-                            
-                            print(f"Attempting to use Calendar MCP Server at {mcp_server_url}...")
-                            
-                            mcp_response = requests.post(
-                                f"{mcp_server_url}/mcp/tools/create_calendar_event",
-                                json={
-                                    "summary": summary,
-                                    "start_time": start_iso,
-                                    "end_time": end_iso,
-                                    "description": description,
-                                    "attendees": [
-                                        {"email": interviewer.get('email')},
-                                        {"email": candidate.email}
-                                    ]
-                                }
-                            )
-                            
-                            if mcp_response.status_code == 200:
-                                mcp_result = mcp_response.json()
-                                if 'error' not in mcp_result:
-                                    event_id = mcp_result.get('id', event_id)
-                                    meet_link = mcp_result.get('meet_link', meet_link)
-                                    html_link = mcp_result.get('htmlLink', f"https://www.google.com/calendar/event?eid={event_id}")
-                                    mcp_calendar_success = True
-                                    print(f"✅ Calendar event created via MCP Server: {event_id}")
-                            
-                        except Exception as mcp_error:
-                            print(f"⚠️ Failed to use Calendar MCP Server: {str(mcp_error)}")
-                            print("Falling back to direct calendar API...")
-                            
-                        # Fall back to direct calendar API if MCP failed
-                        if not mcp_calendar_success:
-                            calendar_event = create_calendar_event(
-                                summary=summary,
-                                description=description,
-                                start_time=start_iso,
-                                end_time=end_iso,
-                                attendees=[
-                                    {"email": interviewer.get('email')},
-                                    {"email": candidate.email}
-                                ]
-                            )
-                            
-                            if calendar_event:
-                                event_id = calendar_event.get('id', event_id)
-                                meet_link = calendar_event.get('hangoutLink', meet_link)
-                                html_link = calendar_event.get('htmlLink', f"https://www.google.com/calendar/event?eid={event_id}")
-                            
-                            # Send email notification with proper parameters
-                            additional_note = (f"Interview Round {i+1} ({round_type})\n" 
-                                              f"Scheduled for {start_time.strftime('%A, %B %d, %Y')} at {formatted_time}")
-                            
-                            send_interview_notification(
-                                recipient_email=candidate.email,
-                                start_time=start_iso,
-                                end_time=end_iso,
-                                meet_link=meet_link,
-                                event_id=event_id,
-                                interviewer_name=interviewer.get('name'),
-                                candidate_name=candidate.name,
-                                job_title=job.job_role_name if hasattr(job, 'job_role_name') else 'Unknown Position',
-                                additional_note=additional_note,
-                                interviewer_email=interviewer.get('email')
-                            )
+                        # Generate a unique Meet code
+                        meet_code = ''.join(random.choices(string.ascii_lowercase, k=3)) + '-' + \
+                                ''.join(random.choices(string.ascii_lowercase, k=4)) + '-' + \
+                                ''.join(random.choices(string.ascii_lowercase, k=3))
+                        meet_link = f"https://meet.google.com/{meet_code}"
+                        
+                        # Format start and end times
+                        start_iso = start_time.isoformat()
+                        end_iso = end_time.isoformat()
+                        
+                        # Create event
+                        print(f"🗓️ Creating calendar event from {start_iso} to {end_iso}")
+                        
+                        calendar_event = create_calendar_event(
+                            summary=summary,
+                            description=description,
+                            start_time=start_iso,
+                            end_time=end_iso,
+                            attendees=[
+                                {"email": interviewer.get('email')},
+                                {"email": candidate.email}
+                            ]
+                        )
+                        
+                        if calendar_event:
+                            event_id = calendar_event.get('id', event_id)
+                            meet_link = calendar_event.get('hangoutLink', calendar_event.get('manual_meet_link', meet_link))
+                            html_link = calendar_event.get('htmlLink', f"https://www.google.com/calendar/event?eid={event_id}")
+                        
+                        # Send email notification with proper parameters
+                        additional_note = (f"Interview Round {i+1} ({round_type})\n" 
+                                          f"Scheduled for {start_time.strftime('%A, %B %d, %Y')} at {formatted_time}")
+                        
+                        send_interview_notification(
+                            recipient_email=candidate.email,
+                            start_time=start_iso,
+                            end_time=end_iso,
+                            meet_link=meet_link,
+                            event_id=event_id,
+                            interviewer_name=interviewer.get('name'),
+                            candidate_name=candidate.name,
+                            job_title=job.job_role_name if hasattr(job, 'job_role_name') else 'Unknown Position',
+                            additional_note=additional_note,
+                            interviewer_email=interviewer.get('email')
+                        )
                     except Exception as calendar_error:
                         print(f"Error creating calendar event: {calendar_error}")
                         # Continue with mock data
@@ -783,77 +935,123 @@ def create_end_to_end_crew(job_id: str, number_of_candidates: int = 2, interview
     return crew
 
 # Functions to run the specific processes
-def run_shortlisting_process(job_id: str = None, job_role_name: str = None, number_of_candidates: int = 2):
+def run_shortlisting_process(job_role_name: str, number_of_candidates: int = 2):
     """Run the shortlisting process for a job
     
     Args:
-        job_id: Optional job ID. If provided, this takes precedence over job_role_name
-        job_role_name: Optional job role name. Used if job_id is not provided
+        job_role_name: The job role name to search for
         number_of_candidates: Number of candidates to shortlist
         
     Returns:
         Result from the crew execution
     """
-    # Validate that at least one identifier is provided
-    if not job_id and not job_role_name:
-        return "Error: Either job_id or job_role_name must be provided"
-        
-    # If job_id is not provided but job_role_name is, try to find the job_id
-    if not job_id and job_role_name:
-        print(f"Looking up job_id for role: '{job_role_name}'")
-        jobs = FirestoreDB.execute_query("jobs", "job_role_name", "==", job_role_name)
-        if jobs and len(jobs) > 0:
-            job = jobs[0]
-            job_id = job.get('id', job.get('job_id'))
-            print(f"Found job_id: {job_id} for role: {job_role_name}")
-        else:
-            return f"Error: No job found with role name '{job_role_name}'"
+    # Validate job_role_name
+    if not job_role_name or job_role_name.strip() == "":
+        return "Error: job_role_name must be provided"
     
-    # Now create the crew with the job_id
-    print(f"Creating shortlisting crew for job_id: {job_id}")
-    crew = create_shortlisting_crew(job_id, number_of_candidates)
+    # Verify the job exists
+    print(f"Looking up job with role name: '{job_role_name}'")
+    job = JobService.get_job_posting_by_role_name(job_role_name)
+    if not job:
+        return f"Error: No job found with role name '{job_role_name}'"
+    
+    # Get the job_id for internal reference 
+    job_id = job.id
+    print(f"Found job with ID {job_id} for role: '{job_role_name}'")
+    
+    # Create crew with the job_role_name
+    print(f"Creating shortlisting crew for job role: '{job_role_name}'")
+    
+    # Modify the crew creation to use job_role_name
+    task = Task(
+        description=f"""
+        Shortlist the top {number_of_candidates} candidates for job role: '{job_role_name}'.
+        
+        Steps:
+        1. First find the job by its role name using FindJobByRole tool
+        2. Get all candidates for this job using GetCandidates with the job ID you found
+        3. Shortlist the top {number_of_candidates} candidates based on AI fit scores using ShortlistCandidatesByRole
+        
+        IMPORTANT: Process only the exact job role provided ({job_role_name}). Do NOT attempt to query multiple job roles.
+        
+        Return the shortlisted candidates with their details.
+        """,
+        expected_output=f"List of top {number_of_candidates} candidates for job role: '{job_role_name}', sorted by AI fit score",
+        agent=shortlisting_agent
+    )
+    
+    crew = Crew(
+        agents=[shortlisting_agent],
+        tasks=[task],
+        verbose=True,
+        process=Process.sequential
+    )
+    
     result = crew.kickoff()
     return result
 
-def run_scheduling_process(job_id: str = None, job_role_name: str = None, interview_date: str = None, number_of_rounds: int = 2):
+def run_scheduling_process(job_role_name: str, interview_date: str = None, number_of_rounds: int = 2):
     """Run the scheduling process for shortlisted candidates
     
     Args:
-        job_id: Optional job ID. If provided, this takes precedence over job_role_name
-        job_role_name: Optional job role name. Used if job_id is not provided
+        job_role_name: The job role name to search for
         interview_date: Optional date for the interview (YYYY-MM-DD format)
         number_of_rounds: Number of interview rounds to schedule
         
     Returns:
         Result from the crew execution
     """
-    # Validate that at least one identifier is provided
-    if not job_id and not job_role_name:
-        return "Error: Either job_id or job_role_name must be provided"
-        
-    # If job_id is not provided but job_role_name is, try to find the job_id
-    if not job_id and job_role_name:
-        print(f"Looking up job_id for role: '{job_role_name}'")
-        jobs = FirestoreDB.execute_query("jobs", "job_role_name", "==", job_role_name)
-        if jobs and len(jobs) > 0:
-            job = jobs[0]
-            job_id = job.get('id', job.get('job_id'))
-            print(f"Found job_id: {job_id} for role: {job_role_name}")
-        else:
-            return f"Error: No job found with role name '{job_role_name}'"
+    # Validate job_role_name
+    if not job_role_name or job_role_name.strip() == "":
+        return "Error: job_role_name must be provided"
     
-    # Now create the crew with the job_id
-    print(f"Creating scheduling crew for job_id: {job_id}")
-    crew = create_scheduling_crew(job_id, interview_date, number_of_rounds)
+    # Verify the job exists
+    print(f"Looking up job with role name: '{job_role_name}'")
+    job = JobService.get_job_posting_by_role_name(job_role_name)
+    if not job:
+        return f"Error: No job found with role name '{job_role_name}'"
+    
+    # Get the job_id for internal reference 
+    job_id = job.id
+    print(f"Found job with ID {job_id} for role: '{job_role_name}'")
+    
+    # Create task specifically for job_role_name
+    task = Task(
+        description=f"""
+        Schedule interviews for all shortlisted candidates for job role: '{job_role_name}'.
+        
+        Interview details:
+        - Date: {interview_date or (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")}
+        - Number of rounds: {number_of_rounds}
+        
+        Steps:
+        1. Find the job by its role name ({job_role_name})
+        2. Get all shortlisted candidates for this job
+        3. For each candidate, schedule an interview with {number_of_rounds} rounds
+        
+        IMPORTANT: Only process the exact job role name provided. Do not attempt other roles.
+        
+        Return the scheduling details for each candidate.
+        """,
+        expected_output=f"Interview schedules for all shortlisted candidates for job role: '{job_role_name}'",
+        agent=scheduling_agent
+    )
+    
+    crew = Crew(
+        agents=[scheduling_agent],
+        tasks=[task],
+        verbose=True,
+        process=Process.sequential
+    )
+    
     result = crew.kickoff()
     return result
 
-def run_end_to_end_process(job_id: str = None, job_role_name: str = None, number_of_candidates: int = 2, interview_date: str = None, number_of_rounds: int = 2):
+def run_end_to_end_process(job_role_name: str, number_of_candidates: int = 2, interview_date: str = None, number_of_rounds: int = 2):
     """Run the entire process from shortlisting to scheduling
     
     Args:
-        job_id: Optional job ID. If provided, this takes precedence over job_role_name
-        job_role_name: Optional job role name. Used if job_id is not provided
+        job_role_name: The job role name to search for
         number_of_candidates: Number of candidates to shortlist
         interview_date: Optional date for the interview (YYYY-MM-DD format)
         number_of_rounds: Number of interview rounds to schedule
@@ -861,23 +1059,31 @@ def run_end_to_end_process(job_id: str = None, job_role_name: str = None, number
     Returns:
         Result from the crew execution
     """
-    # Validate that at least one identifier is provided
-    if not job_id and not job_role_name:
-        return "Error: Either job_id or job_role_name must be provided"
-        
-    # If job_id is not provided but job_role_name is, try to find the job_id
-    if not job_id and job_role_name:
-        print(f"Looking up job_id for role: '{job_role_name}'")
-        jobs = FirestoreDB.execute_query("jobs", "job_role_name", "==", job_role_name)
-        if jobs and len(jobs) > 0:
-            job = jobs[0]
-            job_id = job.get('id', job.get('job_id'))
-            print(f"Found job_id: {job_id} for role: {job_role_name}")
-        else:
-            return f"Error: No job found with role name '{job_role_name}'"
+    # Validate job_role_name
+    if not job_role_name or job_role_name.strip() == "":
+        return "Error: job_role_name must be provided"
     
-    # Now create the crew with the job_id
-    print(f"Creating end-to-end process for job_id: {job_id}")
-    crew = create_end_to_end_crew(job_id, number_of_candidates, interview_date, number_of_rounds)
-    result = crew.kickoff()
+    # Verify the job exists
+    print(f"Looking up job with role name: '{job_role_name}'")
+    job = JobService.get_job_posting_by_role_name(job_role_name)
+    if not job:
+        return f"Error: No job found with role name '{job_role_name}'"
+    
+    # Get the job_id for internal reference 
+    job_id = job.id
+    print(f"Found job with ID {job_id} for role: '{job_role_name}'")
+    
+    # Run shortlisting first
+    print(f"Starting shortlisting process for job role: '{job_role_name}'")
+    shortlisting_result = run_shortlisting_process(job_role_name, number_of_candidates)
+    
+    # Then run scheduling
+    print(f"Starting scheduling process for job role: '{job_role_name}'")
+    scheduling_result = run_scheduling_process(job_role_name, interview_date, number_of_rounds)
+    
+    # Combine results
+    result = f"END-TO-END PROCESS COMPLETE FOR JOB ROLE: '{job_role_name}'\n\n"
+    result += f"SHORTLISTING RESULTS:\n{shortlisting_result}\n\n"
+    result += f"SCHEDULING RESULTS:\n{scheduling_result}\n"
+    
     return result

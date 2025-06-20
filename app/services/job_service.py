@@ -161,3 +161,43 @@ class JobService:
             FirestoreDB.delete_document(JobService.COLLECTION_NAME, job_id)
             return True
         return False
+    
+    @staticmethod
+    def get_job_posting_by_role_name(role_name: str) -> Optional[JobPostingResponse]:
+        """
+        Get a job posting by role name
+        
+        Args:
+            role_name: The role name to search for
+            
+        Returns:
+            JobPostingResponse or None if not found
+        """
+        try:
+            # Handle empty role_name
+            if not role_name or role_name.strip() == "":
+                print("Warning: Empty role_name provided")
+                return None
+                
+            # Query the jobs collection for this role name
+            print(f"Querying for job with role_name: '{role_name}'")
+            jobs = FirestoreDB.execute_query("jobs", "job_role_name", "==", role_name)
+            
+            if not jobs or len(jobs) == 0:
+                print(f"No jobs found with role name '{role_name}'")
+                return None
+                
+            # Use the first matching job
+            job = jobs[0]
+            
+            # Ensure job has an id field
+            if "id" not in job and "job_id" in job:
+                job["id"] = job["job_id"]
+            elif "id" not in job:
+                # Generate an id if none exists
+                job["id"] = str(uuid.uuid4())
+                
+            return JobPostingResponse(**job)
+        except Exception as e:
+            print(f"Error getting job posting by role name: {e}")
+            return None

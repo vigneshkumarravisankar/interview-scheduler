@@ -2,9 +2,11 @@ import os
 import random
 import string
 from typing import List, Dict, Any, Optional
-import datetime
+from datetime import datetime, timedelta, timezone
+from dateutil import parser
 from dotenv import load_dotenv
 from google.oauth2 import service_account
+from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
 # Load environment variables
@@ -13,14 +15,27 @@ load_dotenv()
 # Constants
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 SERVICE_ACCOUNT_FILE = os.environ.get('CALENDAR_SERVICE_ACCOUNT_PATH', 'app/config/calendar_service_account.json')
+CREDENTIALS_FILE = os.environ.get('CREDENTIALS_FILE', 'app/renamer-scheduler-agent/credentials.json')
 
 class CalendarService:
     """Service for interacting with Google Calendar API"""
     
     @staticmethod
     def get_calendar_service():
-        """Get a service client for Google Calendar API using service account"""
+        """Get a service client for Google Calendar API using OAuth flow or service account"""
         try:
+            # Try using OAuth flow (preferred for user-level access)
+            if os.path.exists(CREDENTIALS_FILE):
+                print(f"Using OAuth flow with credentials file: {CREDENTIALS_FILE}")
+                try:
+                    flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
+                    creds = flow.run_local_server(port=3000)
+                    service = build("calendar", "v3", credentials=creds)
+                    return service
+                except Exception as oauth_error:
+                    print(f"OAuth flow failed: {oauth_error}. Falling back to service account.")
+                
+            # Fall back to service account (limited permissions)
             print(f"Using calendar service account file: {SERVICE_ACCOUNT_FILE}")
             if os.path.exists(SERVICE_ACCOUNT_FILE):
                 credentials = service_account.Credentials.from_service_account_file(
@@ -30,7 +45,7 @@ class CalendarService:
                 return service
             else:
                 print(f"Calendar service account file not found at {SERVICE_ACCOUNT_FILE}")
-                raise FileNotFoundError(f"Calendar service account file not found: {SERVICE_ACCOUNT_FILE}")
+                raise FileNotFoundError(f"No valid credentials found for calendar access")
         except Exception as e:
             print(f"Error creating calendar service: {e}")
             raise
@@ -58,8 +73,8 @@ class CalendarService:
     def create_interview_event(
         summary: str, 
         description: str, 
-        start_time: datetime.datetime, 
-        end_time: datetime.datetime,
+        start_time: datetime, 
+        end_time: datetime,
         attendees: List[Dict[str, str]] = None,
         location: str = "Google Meet",
         timezone: str = "Asia/Kolkata",
@@ -115,31 +130,42 @@ class CalendarService:
             }
                 
             # Only add attendees if explicitly requested (will only work with Domain-Wide Delegation)
-            if attendees:
-                # Format attendees properly
-                formatted_attendees = []
-                for attendee in attendees:
-                    if isinstance(attendee, str):
-                        # If attendee is just a string (email), convert to proper format
-                        formatted_attendees.append({"email": attendee})
-                    elif isinstance(attendee, dict):
-                        if "email" not in attendee:
-                            # If dict but missing email field, skip this attendee
-                            print(f"Warning: Attendee record missing email field: {attendee}")
-                            continue
-                        formatted_attendees.append(attendee)
-                    else:
-                        print(f"Warning: Invalid attendee format: {attendee}")
-                        continue
+            # if attendees:
+            #     # Format attendees properly
+            #     formatted_attendees = []
+            #     for attendee in attendees:
+                    # if isinstance(attendee, str):
+                    #     # If attendee is just a string (email), convert to proper format
+                    #     formatted_attendees.append(attendee)
+                    # elif isinstance(attendee, dict):
+                    #     if "email" not in attendee:
+                    #         # If dict but missing email field, skip this attendee
+                    #         print(f"Warning: Attendee record missing email field: {attendee}")
+                    #         continue
+                    #     formatted_attendees.append(attendee)
+                    # else:
+                    #     print(f"Warning: Invalid attendee format: {attendee}")
+                    #     continue
+                #     formatted_attendees.append(attendee)
                 
-                # Only add if we have valid attendees
-                if formatted_attendees:
-                    event['attendees'] = formatted_attendees
+                # # Only add if we have valid attendees
+                # if formatted_attendees:
+                #     event['attendees'] = formatted_attendees
+            
+            valid_attendees = [
+                attendee for attendee in attendees 
+                if attendee.get('email') and isinstance(attendee['email'], str)
+            ]
+
+            # Only add attendees if there are valid ones
+            if valid_attendees:
+                event['attendees'] = valid_attendees
             
             # No conference data needed since we're using a pre-generated Meet link
             
             # Add the event to the calendar (no conference data)
             try:
+                print("event: ",event)
                 event = service.events().insert(
                     calendarId='primary',  # Use primary calendar
                     body=event
@@ -182,9 +208,167 @@ class CalendarService:
             raise
     
     @staticmethod
+    def get_actual_busy_slots(calendar_id="primary", start_time=None, end_time=None):
+        """Get busy time slots for a calendar
+        
+        Args:
+            calendar_id: Email address or calendar ID
+            start_time: Start time as datetime or ISO string
+            end_time: End time as datetime or ISO string
+            
+        Returns:
+            List of busy slot dictionaries with start and end times
+        """
+        try:
+            service = CalendarService.get_calendar_service()
+            
+            # Convert datetime objects to ISO strings if needed
+            if isinstance(start_time, datetime):
+                start_time = start_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+            if isinstance(end_time, datetime):
+                end_time = end_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+                
+            # Execute the query    
+            events_result = service.events().list(
+                calendarId=calendar_id,
+                timeMin=start_time,
+                timeMax=end_time,
+                singleEvents=True,
+                orderBy='startTime'
+            ).execute()
+
+            events = events_result.get('items', [])
+            busy_slots = []
+            for event in events:
+                if 'start' in event and 'end' in event:
+                    busy_slots.append({
+                        'start': event['start'].get('dateTime'),
+                        'end': event['end'].get('dateTime')
+                    })
+            return busy_slots
+        except Exception as e:
+            print(f"Error getting busy slots: {e}")
+            return []
+    
+    @staticmethod
+    def generate_time_slots(start_time_str, end_time_str, slot_duration_minutes=30):
+        """Generate time slots within a time range
+        
+        Args:
+            start_time_str: Start time as datetime object or ISO string
+            end_time_str: End time as datetime object or ISO string
+            slot_duration_minutes: Duration of each slot in minutes
+            
+        Returns:
+            List of time slot tuples (start, end)
+        """
+        # Convert to datetime objects if strings are provided
+        if isinstance(start_time_str, str):
+            start_dt = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
+        else:
+            start_dt = start_time_str
+            
+        if isinstance(end_time_str, str):
+            end_dt = datetime.fromisoformat(end_time_str.replace('Z', '+00:00'))
+        else:
+            end_dt = end_time_str
+
+        slots = []
+        current = start_dt
+        while current + timedelta(minutes=slot_duration_minutes) <= end_dt:
+            slot_start = current
+            slot_end = current + timedelta(minutes=slot_duration_minutes)
+            slots.append((slot_start, slot_end))
+            current += timedelta(minutes=slot_duration_minutes)
+
+        return slots
+    
+    @staticmethod
+    def compute_bitmasks(busy_times_list, time_slots):
+        """Compute availability bitmasks based on busy times
+        
+        Args:
+            busy_times_list: List of lists containing busy time dictionaries
+            time_slots: List of time slot tuples (start, end)
+            
+        Returns:
+            List of bitmasks (lists of 0/1 indicating busy/free)
+        """
+        bitmasks = []
+
+        for busy_times in busy_times_list:
+            bitmask = []
+            for slot_start, slot_end in time_slots:
+                # Slot times are datetime objects
+                is_busy = False
+                for busy in busy_times:
+                    # Parse busy times if they're strings
+                    if isinstance(busy["start"], str):
+                        busy_start = parser.isoparse(busy["start"]).replace(tzinfo=timezone.utc)
+                    else:
+                        busy_start = busy["start"].replace(tzinfo=timezone.utc)
+                        
+                    if isinstance(busy["end"], str):
+                        busy_end = parser.isoparse(busy["end"]).replace(tzinfo=timezone.utc)
+                    else:
+                        busy_end = busy["end"].replace(tzinfo=timezone.utc)
+                        
+                    # Add timezone info if not present
+                    if slot_start.tzinfo is None:
+                        slot_start = slot_start.replace(tzinfo=timezone.utc)
+                    if slot_end.tzinfo is None:
+                        slot_end = slot_end.replace(tzinfo=timezone.utc)
+
+                    # Check overlap
+                    if slot_start < busy_end and slot_end > busy_start:
+                        is_busy = True
+                        break
+
+                bitmask.append(0 if is_busy else 1)
+            bitmasks.append(bitmask)
+        
+        return bitmasks
+    
+    @staticmethod
+    def secure_bitmask_intersection(bitmasks):
+        """Find common available slots using bitmask intersection
+        
+        Args:
+            bitmasks: List of bitmasks (lists of 0/1)
+            
+        Returns:
+            List with intersection result (1 = free in all calendars)
+        """
+        if not bitmasks or len(bitmasks) == 0:
+            return []
+            
+        length = len(bitmasks[0])
+        intersection = [1] * length
+        for mask in bitmasks:
+            for i in range(length):
+                intersection[i] = intersection[i] & mask[i]
+        return intersection
+    
+    @staticmethod
+    def find_first_available_slot(bitmask, time_slots):
+        """Find the first available slot in a bitmask
+        
+        Args:
+            bitmask: List of 0/1 indicating busy/free
+            time_slots: List of time slot tuples (start, end)
+            
+        Returns:
+            Tuple (start, end) of available slot or None
+        """
+        for i, val in enumerate(bitmask):
+            if val == 1 and i < len(time_slots):
+                return time_slots[i]
+        return None
+    
+    @staticmethod
     def get_events(
-        time_min: Optional[datetime.datetime] = None,
-        time_max: Optional[datetime.datetime] = None,
+        time_min: Optional[datetime] = None,
+        time_max: Optional[datetime] = None,
         max_results: int = 10
     ) -> List[Dict[str, Any]]:
         """
@@ -203,7 +387,7 @@ class CalendarService:
             
             # Default to now for time_min if not specified
             if not time_min:
-                time_min = datetime.datetime.utcnow()
+                time_min = datetime.utcnow()
             
             # Query parameters
             params = {
@@ -231,10 +415,10 @@ class CalendarService:
     @staticmethod
     def find_available_slot(
         duration_minutes: int = 60,
-        start_date: Optional[datetime.datetime] = None,
-        end_date: Optional[datetime.datetime] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
         working_hours: Dict[str, Any] = None
-    ) -> Optional[Dict[str, datetime.datetime]]:
+    ) -> Optional[Dict[str, datetime]]:
         """
         Find an available time slot for scheduling an interview
         
@@ -251,10 +435,10 @@ class CalendarService:
         try:
             # Default values
             if not start_date:
-                start_date = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+                start_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
             
             if not end_date:
-                end_date = start_date + datetime.timedelta(days=7)
+                end_date = start_date + timedelta(days=7)
             
             if not working_hours:
                 working_hours = {'start': 9, 'end': 17}  # 9 AM to 5 PM
@@ -270,10 +454,10 @@ class CalendarService:
                 
                 if start and end:
                     # Parse dates and remove timezone info to avoid comparison issues
-                    start_dt = datetime.datetime.fromisoformat(start.replace('Z', '+00:00'))
+                    start_dt = datetime.fromisoformat(start.replace('Z', '+00:00'))
                     start_dt = start_dt.replace(tzinfo=None)  # Remove timezone info
                     
-                    end_dt = datetime.datetime.fromisoformat(end.replace('Z', '+00:00'))
+                    end_dt = datetime.fromisoformat(end.replace('Z', '+00:00'))
                     end_dt = end_dt.replace(tzinfo=None)  # Remove timezone info
                     
                     busy_slots.append((start_dt, end_dt))
@@ -286,7 +470,7 @@ class CalendarService:
             while current_date < end_date:
                 # Skip weekends
                 if current_date.weekday() >= 5:  # 5 = Saturday, 6 = Sunday
-                    current_date += datetime.timedelta(days=1)
+                    current_date += timedelta(days=1)
                     continue
                 
                 # Set working hours for the current day
@@ -300,7 +484,7 @@ class CalendarService:
                 # Find available slots within working hours
                 potential_slot_start = day_start
                 while potential_slot_start < day_end:
-                    potential_slot_end = potential_slot_start + datetime.timedelta(minutes=duration_minutes)
+                    potential_slot_end = potential_slot_start + timedelta(minutes=duration_minutes)
                     
                     # Check if slot is free
                     slot_is_free = True
@@ -321,10 +505,10 @@ class CalendarService:
                     
                     # If not free, try next slot (increment by 30 minutes)
                     if slot_is_free:
-                        potential_slot_start += datetime.timedelta(minutes=30)
+                        potential_slot_start += timedelta(minutes=30)
                 
                 # Move to next day
-                current_date += datetime.timedelta(days=1)
+                current_date += timedelta(days=1)
             
             # No available slot found
             return None
@@ -332,9 +516,9 @@ class CalendarService:
         except Exception as e:
             print(f"Error finding available calendar slot: {e}")
             # Return a default slot tomorrow at 10 AM as fallback
-            tomorrow = datetime.datetime.now() + datetime.timedelta(days=1)
+            tomorrow = datetime.now() + timedelta(days=1)
             start = tomorrow.replace(hour=10, minute=0, second=0, microsecond=0)
-            end = start + datetime.timedelta(minutes=duration_minutes)
+            end = start + timedelta(minutes=duration_minutes)
             return {'start': start, 'end': end}
     
     @staticmethod
@@ -387,12 +571,12 @@ def create_calendar_event(
     try:
         # Parse ISO strings to datetime objects
         if isinstance(start_time, str):
-            start_dt = datetime.datetime.fromisoformat(start_time.replace('Z', '+00:00').replace(' ', 'T'))
+            start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00').replace(' ', 'T'))
         else:
             start_dt = start_time
             
         if isinstance(end_time, str):
-            end_dt = datetime.datetime.fromisoformat(end_time.replace('Z', '+00:00').replace(' ', 'T'))
+            end_dt = datetime.fromisoformat(end_time.replace('Z', '+00:00').replace(' ', 'T'))
         else:
             end_dt = end_time
         

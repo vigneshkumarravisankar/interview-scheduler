@@ -32,20 +32,16 @@ router = APIRouter(
 )
 
 class ShortlistRequest(BaseModel):
-    job_id: str
-    number_of_candidates: int = Field(default=2, description="Number of candidates to shortlist (default 2)")
-    
-class ShortlistByRoleRequest(BaseModel):
-    role_name: str = Field(..., description="Name of the job role to shortlist candidates for (e.g., 'AI Engineer')")
+    job_role_name: str = Field(..., description="Name of the job role to shortlist candidates for (e.g., 'AI Engineer')")
     number_of_candidates: int = Field(default=2, description="Number of candidates to shortlist (default 2)")
 
 class ScheduleRequest(BaseModel):
-    job_id: str
+    job_role_name: str = Field(..., description="Name of the job role to schedule interviews for (e.g., 'AI Engineer')")
     interview_date: Optional[str] = Field(None, description="Date for interviews in YYYY-MM-DD format (default: tomorrow)")
     number_of_rounds: int = Field(default=2, description="Number of interview rounds (default 2)")
 
 class EndToEndRequest(BaseModel):
-    job_id: str
+    job_role_name: str = Field(..., description="Name of the job role for the entire process (e.g., 'AI Engineer')")
     number_of_candidates: int = Field(default=2, description="Number of candidates to shortlist (default 2)")
     interview_date: Optional[str] = Field(None, description="Date for interviews in YYYY-MM-DD format (default: tomorrow)")
     number_of_rounds: int = Field(default=2, description="Number of interview rounds (default 2)")
@@ -56,7 +52,7 @@ async def shortlist_candidates(request: ShortlistRequest, background_tasks: Back
     Use the specialized shortlisting agent to select top candidates based on AI fit scores
     
     This agent will:
-    1. Get all candidates for the specified job
+    1. Get all candidates for the specified job role
     2. Rank them by AI fit score
     3. Select the top N candidates
     4. Store them directly in interview_candidates collection
@@ -65,7 +61,7 @@ async def shortlist_candidates(request: ShortlistRequest, background_tasks: Back
         # Run the shortlisting process in the background
         def run_shortlisting():
             result = run_shortlisting_process(
-                job_id=request.job_id,
+                job_role_name=request.job_role_name,
                 number_of_candidates=request.number_of_candidates
             )
             print(f"Shortlisting completed: {result}")
@@ -76,8 +72,8 @@ async def shortlist_candidates(request: ShortlistRequest, background_tasks: Back
         
         return {
             "status": "processing",
-            "message": f"Shortlisting top {request.number_of_candidates} candidates for job {request.job_id}",
-            "job_id": request.job_id
+            "message": f"Shortlisting top {request.number_of_candidates} candidates for job role '{request.job_role_name}'",
+            "job_role_name": request.job_role_name
         }
     except Exception as e:
         raise HTTPException(
@@ -86,57 +82,14 @@ async def shortlist_candidates(request: ShortlistRequest, background_tasks: Back
         )
         
 @router.post("/shortlist-by-role")
-async def shortlist_candidates_by_role(request: ShortlistByRoleRequest, background_tasks: BackgroundTasks):
+async def shortlist_candidates_by_role(request: ShortlistRequest, background_tasks: BackgroundTasks):
     """
-    Find a job by role name and shortlist top candidates for that job
-    
-    This agent will:
-    1. Search for a job with the specified role name in the jobs collection
-    2. Get all candidates for that job from candidates_data collection
-    3. Rank them by AI fit score
-    4. Select the top N candidates
-    5. Store them directly in interview_candidates collection
+    This endpoint is deprecated. Please use /shortlist instead.
+    Keeping for backward compatibility.
     """
     try:
-        # Run a custom shortlisting process for role in the background
-        def run_shortlisting_by_role():
-            # Create a shortlisting task specifically for role name
-            shortlisting_task = Task(
-                description=f"""
-                Shortlist the top {request.number_of_candidates} candidates for the role: "{request.role_name}".
-                
-                Steps:
-                1. Find the job with role name "{request.role_name}" in the jobs collection
-                2. Get all candidates for this job
-                3. Shortlist the top {request.number_of_candidates} candidates based on AI fit scores
-                4. Store the candidates directly in the interview_candidates collection
-                
-                Use the ShortlistCandidatesByRole tool for this task.
-                """,
-                expected_output=f"List of top {request.number_of_candidates} candidates for role '{request.role_name}', sorted by AI fit score",
-                agent=shortlisting_agent
-            )
-            
-            # Create a simple crew with just this task
-            crew = Crew(
-                agents=[shortlisting_agent],
-                tasks=[shortlisting_task],
-                verbose=True,
-                process=Process.sequential
-            )
-            
-            result = crew.kickoff()
-            print(f"Role-based shortlisting completed: {result}")
-            return result
-            
-        # Add the background task
-        background_tasks.add_task(run_shortlisting_by_role)
-        
-        return {
-            "status": "processing",
-            "message": f"Finding job and shortlisting top {request.number_of_candidates} candidates for role '{request.role_name}'",
-            "role_name": request.role_name
-        }
+        # Redirect to the main shortlist endpoint
+        return await shortlist_candidates(request, background_tasks)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -149,7 +102,7 @@ async def schedule_interviews(request: ScheduleRequest, background_tasks: Backgr
     Use the specialized scheduling agent to schedule interviews for shortlisted candidates
     
     This agent will:
-    1. Get previously shortlisted candidates for the job
+    1. Get previously shortlisted candidates for the job role
     2. Create calendar events with Google Meet links
     3. Send email notifications to candidates and interviewers
     4. Store interview records in the database
@@ -158,7 +111,7 @@ async def schedule_interviews(request: ScheduleRequest, background_tasks: Backgr
         # Run the scheduling process in the background
         def run_scheduling():
             result = run_scheduling_process(
-                job_id=request.job_id,
+                job_role_name=request.job_role_name,
                 interview_date=request.interview_date,
                 number_of_rounds=request.number_of_rounds
             )
@@ -173,8 +126,8 @@ async def schedule_interviews(request: ScheduleRequest, background_tasks: Backgr
         
         return {
             "status": "processing",
-            "message": f"Scheduling interviews for job {request.job_id} on {display_date} with {request.number_of_rounds} rounds",
-            "job_id": request.job_id
+            "message": f"Scheduling interviews for job role '{request.job_role_name}' on {display_date} with {request.number_of_rounds} rounds",
+            "job_role_name": request.job_role_name
         }
     except Exception as e:
         raise HTTPException(
@@ -197,7 +150,7 @@ async def end_to_end_process(request: EndToEndRequest, background_tasks: Backgro
         # Run the end-to-end process in the background
         def run_process():
             result = run_end_to_end_process(
-                job_id=request.job_id,
+                job_role_name=request.job_role_name,
                 number_of_candidates=request.number_of_candidates,
                 interview_date=request.interview_date,
                 number_of_rounds=request.number_of_rounds
@@ -213,8 +166,8 @@ async def end_to_end_process(request: EndToEndRequest, background_tasks: Backgro
         
         return {
             "status": "processing",
-            "message": f"Running complete interview process for job {request.job_id}: shortlisting {request.number_of_candidates} candidates and scheduling {request.number_of_rounds} interview rounds on {display_date}",
-            "job_id": request.job_id
+            "message": f"Running complete interview process for job role '{request.job_role_name}': shortlisting {request.number_of_candidates} candidates and scheduling {request.number_of_rounds} interview rounds on {display_date}",
+            "job_role_name": request.job_role_name
         }
     except Exception as e:
         raise HTTPException(
@@ -222,10 +175,10 @@ async def end_to_end_process(request: EndToEndRequest, background_tasks: Backgro
             detail=f"Error in end-to-end process: {str(e)}",
         )
 
-@router.get("/status/{job_id}")
-async def get_process_status(job_id: str):
+@router.get("/status/{job_role_name}")
+async def get_process_status(job_role_name: str):
     """
-    Check the status of specialized agent processes for a job
+    Check the status of specialized agent processes for a job role
     
     This endpoint will check:
     1. If candidates have been shortlisted
@@ -233,6 +186,17 @@ async def get_process_status(job_id: str):
     """
     try:
         from app.database.firebase_db import FirestoreDB
+        from app.services.job_service import JobService
+        
+        # First find the job_id from the job_role_name
+        job = JobService.get_job_posting_by_role_name(job_role_name)
+        if not job:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No job found with role name '{job_role_name}'",
+            )
+        
+        job_id = job.id
         
         # Check for shortlisted candidates
         shortlisted = FirestoreDB.execute_query("shortlisted_candidates", "job_id", "==", job_id)
@@ -241,6 +205,7 @@ async def get_process_status(job_id: str):
         interviews = FirestoreDB.execute_query("interview_candidates", "job_id", "==", job_id)
         
         return {
+            "job_role_name": job_role_name,
             "job_id": job_id,
             "shortlisting_complete": len(shortlisted) > 0,
             "shortlisted_count": len(shortlisted) if shortlisted else 0,
