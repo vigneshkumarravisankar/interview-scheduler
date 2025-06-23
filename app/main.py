@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from firebase_admin import get_app
 import socketio
 
-from app.api import job_routes, calendar_routes, auth_routes, candidate_routes, interview_routes, response_routes, final_selection_routes, chatbot_routes, agent_routes, shortlist_routes, reschedule_routes, langgraph_routes, resume_routes, integration_routes, specialized_routes, firebase_query_routes
+from app.api import job_routes, calendar_routes, auth_routes, candidate_routes, interview_routes, response_routes, final_selection_routes, chatbot_routes, agent_routes, shortlist_routes, reschedule_routes, langgraph_routes, resume_routes, integration_routes, specialized_routes, firebase_query_routes, stackrank_routes
 from app.agents.interview_agent import InterviewAgentSystem, create_interview_crew
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -59,6 +59,7 @@ app.include_router(resume_routes.router)
 app.include_router(integration_routes.router)
 app.include_router(specialized_routes.router)
 app.include_router(firebase_query_routes.router)
+app.include_router(stackrank_routes.router)
 
 # Mount the Socket.IO app
 app.mount("/socket.io", agent_routes.socket_app)

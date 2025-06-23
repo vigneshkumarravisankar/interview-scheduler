@@ -14,6 +14,7 @@ from app.schemas.agent_schema import AgentQueryRequest, AgentResponse, AgentSyst
 from app.agents.crew_agent_system import get_agent_system
 from app.agents.langgraph_agent import get_langgraph_agent
 from app.agents.feedback_agent_system import get_feedback_agent_system
+from app.agents.stackrank_agent_system import get_stackrank_agent_system
 
 # Create router
 router = APIRouter(
@@ -142,10 +143,22 @@ async def agent_query(sid, data):
             # Check if this is a feedback-related query
             feedback_keywords = ["update feedback", "feedback for", "update the feedback", "rating", "selected for next round", "interview feedback"]
             
+            # Check if this is a stackranking-related query
+            stackrank_keywords = [
+                "stackrank", "stack rank", "top profiles", "offer letter", "send offer", 
+                "final selection", "best candidates", "highest score", "send them offer",
+                "fullstack developer", "developer role", "joining date", "july 10th",
+                "rank candidates", "select top", "hire candidates", "top candidate"
+            ]
+            
             if any(keyword in query.lower() for keyword in feedback_keywords):
                 # Route to specialized feedback agent system
                 feedback_system = get_feedback_agent_system()
                 return feedback_system.process_feedback_query(query, session_id)
+            elif any(keyword in query.lower() for keyword in stackrank_keywords):
+                # Route to specialized stackranking agent system
+                stackrank_system = get_stackrank_agent_system()
+                return stackrank_system.process_stackrank_query(query, session_id)
             elif agent_system_type == 'langgraph':
                 # For LangGraph, we need job data
                 job_data = data.get('job_data', {

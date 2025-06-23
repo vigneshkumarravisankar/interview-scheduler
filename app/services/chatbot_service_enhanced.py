@@ -34,6 +34,8 @@ from app.agents.job_agents import (
     run_job_retrieval_process,
     run_resume_processing_process
 )
+# Import stackrank agent system
+from app.agents.stackrank_agent_system import get_stackrank_agent_system
 
 
 class ChatbotServiceEnhanced:
@@ -162,6 +164,22 @@ class ChatbotServiceEnhanced:
                 "keywords": [
                     "create job", "add job", "new job", "post job", "create position",
                     "add position", "new posting", "job posting", "add opening", "new role"
+                ]
+            },
+            # Stackrank Management Agent
+            {
+                "path": "/agents/stackrank",
+                "method": "POST",
+                "description": "Run the specialized AI agent to stackrank candidates and send offer letters",
+                "function": ChatbotServiceEnhanced._run_stackrank_agent,
+                "params": {
+                    "query": "string"
+                },
+                "keywords": [
+                    "stackrank", "stack rank", "rank candidates", "top profiles", "final selection",
+                    "offer letter", "send offer", "best candidates", "hire candidates", "select top",
+                    "top candidate", "highest score", "final candidates", "joining date",
+                    "fullstack developer", "developer role", "send them offer"
                 ]
             },
             {
@@ -469,7 +487,14 @@ You are now ready to help users interact with the Interview Scheduler API and it
             # Interview management categories
             "shortlist": ["shortlist", "select", "choose", "best candidate", "top candidate", "pick", "filter"],
             "schedule": ["schedule", "book", "calendar", "interview time", "interview slot", "arrange meeting", "set up interview"],
-            "end_to_end": ["end to end", "full process", "complete process", "entire process", "shortlist and schedule", "both"]
+            "end_to_end": ["end to end", "full process", "complete process", "entire process", "shortlist and schedule", "both"],
+            
+            # Stackrank management categories
+            "stackrank": [
+                "stackrank", "stack rank", "rank candidates", "top profiles", "final selection", 
+                "offer letter", "send offer", "best candidates", "hire candidates", "select top",
+                "top candidate", "highest score", "final candidates", "joining date"
+            ]
         }
         
         intent_scores = {}
@@ -530,7 +555,10 @@ You are now ready to help users interact with the Interview Scheduler API and it
             # Interview management
             "shortlist": "/agents/shortlist",
             "schedule": "/agents/schedule",
-            "end_to_end": "/agents/end-to-end"
+            "end_to_end": "/agents/end-to-end",
+            
+            # Stackrank management
+            "stackrank": "/agents/stackrank"
         }
         
         # Check if we have a priority category match
@@ -783,6 +811,39 @@ You are now ready to help users interact with the Interview Scheduler API and it
                         extracted_params[param_name] = None
         
         return extracted_params
+    
+    @staticmethod
+    def _run_stackrank_agent(query: str) -> Dict[str, Any]:
+        """
+        Run the stackrank agent system with the given query
+        
+        Args:
+            query: The user's stackrank query
+            
+        Returns:
+            Dictionary with stackrank results
+        """
+        try:
+            # Get the stackrank agent system
+            stackrank_system = get_stackrank_agent_system()
+            
+            # Generate a session ID for this request
+            import uuid
+            session_id = str(uuid.uuid4())
+            
+            # Process the stackrank query
+            result = stackrank_system.process_stackrank_query(query, session_id)
+            
+            return result
+            
+        except Exception as e:
+            logging.error(f"Error running stackrank agent: {str(e)}")
+            return {
+                "response": f"Error running stackrank agent: {str(e)}",
+                "thought_process": [],
+                "primary_agent": "Stackrank Agent",
+                "session_id": "error"
+            }
         
     @staticmethod
     def _get_database_schema() -> str:
