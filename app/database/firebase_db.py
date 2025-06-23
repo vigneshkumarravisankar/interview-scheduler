@@ -180,6 +180,7 @@ class FirestoreDB:
             print("inside get document")
             print("collection name",collection_name)
             doc_ref = db.collection(collection_name).document(doc_id)
+            # doc_ref =db.collection(collection_name).where("job_role_name","==",doc_id)
             print("doc_ref: ",doc_ref)
             doc = doc_ref.get()
             if doc.exists:

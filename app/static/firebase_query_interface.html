@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firebase NLP Query Interface</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+        
+        header {
+            background-color: #3742fa;
+            color: white;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            margin: 0;
+            font-weight: 500;
+        }
+        
+        .container {
+            flex: 1;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        
+        .chat-container {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 70vh;
+        }
+        
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+        
+        .message {
+            margin-bottom: 15px;
+            padding: 10px 15px;
+            border-radius: 10px;
+            max-width: 80%;
+            line-height: 1.4;
+        }
+        
+        .user-message {
+            background-color: #e9f5fe;
+            color: #333;
+            margin-left: auto;
+            border-top-right-radius: 2px;
+        }
+        
+        .bot-message {
+            background-color: #f0f0f0;
+            color: #333;
+            margin-right: auto;
+            border-top-left-radius: 2px;
+        }
+        
+        .message-container {
+            display: flex;
+            margin-bottom: 15px;
+        }
+        
+        .avatar {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-right: 10px;
+            font-weight: bold;
+            color: white;
+            flex-shrink: 0;
+        }
+        
+        .user-avatar {
+            background-color: #3742fa;
+        }
+        
+        .bot-avatar {
+            background-color: #5352ed;
+        }
+        
+        .message-time {
+            font-size: 10px;
+            color: #999;
+            margin-top: 5px;
+        }
+        
+        .input-area {
+            display: flex;
+            padding: 15px;
+            background-color: #f9f9f9;
+            border-top: 1px solid #ddd;
+        }
+        
+        #query-input {
+            flex: 1;
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            font-size: 14px;
+            outline: none;
+        }
+        
+        #send-button {
+            background-color: #3742fa;
+            color: white;
+            border: none;
+            border-radius: 20px;
+            padding: 10px 20px;
+            margin-left: 10px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        #send-button:hover {
+            background-color: #2e36cc;
+        }
+        
+        .info-panel {
+            margin-top: 20px;
+            background-color: white;
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #3742fa;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 10px;
+        }
+        
+        .system-message {
+            font-style: italic;
+            color: #888;
+            text-align: center;
+            margin: 10px 0;
+        }
+        
+        pre {
+            white-space: pre-wrap;
+            background-color: #f8f8f8;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        
+        code {
+            font-family: 'Courier New', monospace;
+        }
+        
+        .result-box {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f8f8f8;
+            border-radius: 5px;
+            border-left: 3px solid #3742fa;
+        }
+        
+        .raw-data-toggle {
+            background: none;
+            border: none;
+            color: #3742fa;
+            cursor: pointer;
+            font-size: 12px;
+            text-decoration: underline;
+            padding: 0;
+            margin-top: 5px;
+        }
+        
+        .raw-data {
+            display: none;
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 5px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Responsive styles */
+        @media (max-width: 600px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .message {
+                max-width: 90%;
+            }
+            
+            .chat-container {
+                height: 60vh;
+            }
+            
+            h1 {
+                font-size: 24px;
+            }
+        }
+
+        /* Adding syntax highlighting */
+        .hljs-keyword { color: #8959a8; }
+        .hljs-string { color: #718c00; }
+        .hljs-number { color: #f5871f; }
+        .hljs-property { color: #4271ae; }
+        .hljs-punctuation { color: #3e999f; }
+        .hljs-operator { color: #3e999f; }
+        .hljs-builtin-name { color: #c82829; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Firebase Natural Language Query Interface</h1>
+    </header>
+
+    <div class="container">
+        <div class="info-panel">
+            <p><strong>Example queries you can try:</strong></p>
+            <ul>
+                <li>Show me all open jobs</li>
+                <li>List all candidates for job XYZ</li>
+                <li>How many interviews are scheduled for Software Engineer position?</li>
+                <li>What's the status of interview for candidate John Smith?</li>
+                <li>Update the feedback for interview ABC123, round 1</li>
+                <li>Show me candidates with AI fit score greater than 85</li>
+                <li>How many candidates have been selected for final offers?</li>
+            </ul>
+        </div>
+
+        <div class="chat-container">
+            <div class="messages" id="messages">
+                <div class="message-container">
+                    <div class="avatar bot-avatar">A</div>
+                    <div class="message bot-message">
+                        Welcome to the Firebase Query Interface! I can help you query and analyze your interview data. Try asking me questions about jobs, candidates, interviews, or offer statuses.
+                    </div>
+                </div>
+            </div>
+            <div class="input-area">
+                <input type="text" id="query-input" placeholder="Type your query here..." />
+                <button id="send-button">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Store the conversation ID for continuing the conversation
+        let conversationId = null;
+
+        // Elements
+        const messagesContainer = document.getElementById('messages');
+        const queryInput = document.getElementById('query-input');
+        const sendButton = document.getElementById('send-button');
+
+        // Function to format timestamp
+        function formatTimestamp(timestamp) {
+            const date = new Date();
+            const hours = date.getHours().toString().padStart(2, '0');
+            const minutes = date.getMinutes().toString().padStart(2, '0');
+            return `${hours}:${minutes}`;
+        }
+
+        // Function to add a message to the chat
+        function addMessage(text, isUser) {
+            const messageContainer = document.createElement('div');
+            messageContainer.className = 'message-container';
+            
+            const avatar = document.createElement('div');
+            avatar.className = isUser ? 'avatar user-avatar' : 'avatar bot-avatar';
+            avatar.textContent = isUser ? 'U' : 'A';
+            
+            const message = document.createElement('div');
+            message.className = isUser ? 'message user-message' : 'message bot-message';
+            
+            // Format code blocks and JSON
+            let formattedText = text;
+            if (!isUser) {
+                // Try to identify and format JSON or code blocks
+                formattedText = formatCodeBlocks(text);
+            }
+            
+            message.innerHTML = formattedText;
+            
+            const time = document.createElement('div');
+            time.className = 'message-time';
+            time.textContent = formatTimestamp();
+            
+            message.appendChild(time);
+            messageContainer.appendChild(avatar);
+            messageContainer.appendChild(message);
+            
+            messagesContainer.appendChild(messageContainer);
+            
+            // Scroll to the bottom
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        // Function to add a system message
+        function addSystemMessage(text) {
+            const message = document.createElement('div');
+            message.className = 'system-message';
+            message.textContent = text;
+            messagesContainer.appendChild(message);
+            
+            // Scroll to the bottom
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        // Function to format code blocks and JSON
+        function formatCodeBlocks(text) {
+            // Format JSON blocks
+            let formattedText = text.replace(/```(json)?\s*([\s\S]*?)```/g, function(match, language, code) {
+                try {
+                    // Check if it's valid JSON
+                    const parsedJson = JSON.parse(code);
+                    const formattedJson = JSON.stringify(parsedJson, null, 2);
+                    return `<pre><code>${syntaxHighlight(formattedJson)}</code></pre>`;
+                } catch (e) {
+                    // Not valid JSON, return as is
+                    return `<pre><code>${code}</code></pre>`;
+                }
+            });
+            
+            // Try to detect and format inline JSON objects even without code blocks
+            formattedText = formattedText.replace(/({[\s\S]*?})/g, function(match) {
+                try {
+                    // Check if it's valid JSON
+                    const parsedJson = JSON.parse(match);
+                    const formattedJson = JSON.stringify(parsedJson, null, 2);
+                    return `<pre><code>${syntaxHighlight(formattedJson)}</code></pre>`;
+                } catch (e) {
+                    // Not valid JSON, return as is
+                    return match;
+                }
+            });
+            
+            return formattedText;
+        }
+
+        // Function for JSON syntax highlighting
+        function syntaxHighlight(json) {
+            if (typeof json !== 'string') {
+                json = JSON.stringify(json, undefined, 2);
+            }
+            json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+                let cls = 'hljs-number';
+                if (/^"/.test(match)) {
+                    if (/:$/.test(match)) {
+                        cls = 'hljs-property';
+                    } else {
+                        cls = 'hljs-string';
+                    }
+                } else if (/true|false/.test(match)) {
+                    cls = 'hljs-keyword';
+                } else if (/null/.test(match)) {
+                    cls = 'hljs-keyword';
+                }
+                return '<span class="' + cls + '">' + match + '</span>';
+            });
+        }
+
+        // Function to add a loading indicator
+        function showLoading() {
+            const loadingContainer = document.createElement('div');
+            loadingContainer.className = 'message-container';
+            loadingContainer.id = 'loading-container';
+            
+            const avatar = document.createElement('div');
+            avatar.className = 'avatar bot-avatar';
+            avatar.textContent = 'A';
+            
+            const message = document.createElement('div');
+            message.className = 'message bot-message';
+            
+            const loading = document.createElement('div');
+            loading.className = 'loading';
+            
+            const loadingText = document.createElement('span');
+            loadingText.textContent = 'Thinking...';
+            
+            message.appendChild(loading);
+            message.appendChild(loadingText);
+            
+            loadingContainer.appendChild(avatar);
+            loadingContainer.appendChild(message);
+            
+            messagesContainer.appendChild(loadingContainer);
+            
+            // Scroll to the bottom
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        // Function to hide loading indicator
+        function hideLoading() {
+            const loadingContainer = document.getElementById('loading-container');
+            if (loadingContainer) {
+                loadingContainer.remove();
+            }
+        }
+
+        // Function to send a query to the API
+        async function sendQuery(query) {
+            showLoading();
+            
+            try {
+                const response = await fetch('/firebase-query/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        conversation_id: conversationId
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('API request failed');
+                }
+                
+                const data = await response.json();
+                
+                // Save conversation ID for context
+                if (data.conversation_id) {
+                    conversationId = data.conversation_id;
+                }
+                
+                hideLoading();
+                
+                // Add bot response
+                addMessage(data.response, false);
+                
+                // Add raw data toggle if available
+                if (data.raw_result) {
+                    const lastMessage = messagesContainer.lastElementChild.querySelector('.message');
+                    
+                    const resultBox = document.createElement('div');
+                    resultBox.className = 'result-box';
+                    
+                    const toggleButton = document.createElement('button');
+                    toggleButton.className = 'raw-data-toggle';
+                    toggleButton.textContent = 'Show raw data';
+                    
+                    const rawData = document.createElement('pre');
+                    rawData.className = 'raw-data';
+                    rawData.innerHTML = syntaxHighlight(JSON.stringify(data.raw_result, null, 2));
+                    
+                    toggleButton.addEventListener('click', () => {
+                        if (rawData.style.display === 'block') {
+                            rawData.style.display = 'none';
+                            toggleButton.textContent = 'Show raw data';
+                        } else {
+                            rawData.style.display = 'block';
+                            toggleButton.textContent = 'Hide raw data';
+                        }
+                    });
+                    
+                    resultBox.appendChild(toggleButton);
+                    resultBox.appendChild(rawData);
+                    lastMessage.appendChild(resultBox);
+                }
+                
+            } catch (error) {
+                console.error('Error:', error);
+                hideLoading();
+                addSystemMessage('Sorry, there was an error processing your query.');
+            }
+        }
+
+        // Event listeners
+        sendButton.addEventListener('click', () => {
+            const query = queryInput.value.trim();
+            if (query) {
+                addMessage(query, true);
+                queryInput.value = '';
+                sendQuery(query);
+            }
+        });
+
+        queryInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                const query = queryInput.value.trim();
+                if (query) {
+                    addMessage(query, true);
+                    queryInput.value = '';
+                    sendQuery(query);
+                }
+            }
+        });
+
+        // Focus on the input when the page loads
+        window.onload = () => {
+            queryInput.focus();
+        };
+    </script>
+</body>
+</html>

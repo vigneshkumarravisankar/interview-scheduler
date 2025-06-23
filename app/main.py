@@ -7,8 +7,10 @@ from fastapi.responses import FileResponse
 from firebase_admin import get_app
 import socketio
 
-from app.api import job_routes, calendar_routes, auth_routes, candidate_routes, interview_routes, response_routes, final_selection_routes, chatbot_routes, agent_routes, shortlist_routes, reschedule_routes, langgraph_routes, resume_routes, integration_routes, specialized_routes
+from app.api import job_routes, calendar_routes, auth_routes, candidate_routes, interview_routes, response_routes, final_selection_routes, chatbot_routes, agent_routes, shortlist_routes, reschedule_routes, langgraph_routes, resume_routes, integration_routes, specialized_routes, firebase_query_routes
 from app.agents.interview_agent import InterviewAgentSystem, create_interview_crew
+
+from fastapi.middleware.cors import CORSMiddleware
 
 # Load environment variables
 load_dotenv()
@@ -26,6 +28,7 @@ app = FastAPI(
     description="API for job posting and interview scheduling",
     version="1.0.0",
 )
+
 
 # CORS middleware
 app.add_middleware(
@@ -55,6 +58,7 @@ app.include_router(langgraph_routes.router)
 app.include_router(resume_routes.router)
 app.include_router(integration_routes.router)
 app.include_router(specialized_routes.router)
+app.include_router(firebase_query_routes.router)
 
 # Mount the Socket.IO app
 app.mount("/socket.io", agent_routes.socket_app)
@@ -78,6 +82,11 @@ def chatbot_demo():
 def agent_interface():
     """Serve the agent interface page"""
     return FileResponse("app/static/agent_interface.html")
+
+@app.get("/firebase-query")
+def firebase_query_interface():
+    """Serve the Firebase NLP query interface page"""
+    return FileResponse("app/static/firebase_query_interface.html")
 
 
 @app.get("/health")

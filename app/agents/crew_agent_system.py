@@ -25,6 +25,9 @@ from app.services.job_service import JobService
 from app.services.candidate_service import CandidateService
 from app.schemas.job_schema import JobPostingCreate, JobPostingResponse
 from app.schemas.candidate_schema import CandidateResponse
+from app.agents.firebase_context_tool import GetInterviewCandidatesTool, GetJobsTool, GetCandidatesTool
+from app.agents.calendar_agent_tool import ScheduleInterviewTool, RescheduleInterviewTool, GetCalendarAvailabilityTool
+from app.database.firebase_db import FirestoreDB
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -670,6 +673,11 @@ class CrewAgentSystem:
         shortlist_tool = ShortlistCandidatesTool()
         reschedule_tool = RescheduleInterviewTool()
         
+        # Create database context tools
+        interview_context_tool = GetInterviewCandidatesTool()
+        jobs_context_tool = GetJobsTool()
+        candidates_context_tool = GetCandidatesTool()
+        
         # Create agents with specialized roles
         self.job_analyzer = Agent(
             role="Job Analysis Expert",
@@ -701,6 +709,11 @@ class CrewAgentSystem:
             tools=[]
         )
         
+        # Create calendar tools
+        schedule_interview_tool = ScheduleInterviewTool()
+        reschedule_interview_tool = RescheduleInterviewTool()
+        calendar_availability_tool = GetCalendarAvailabilityTool()
+        
         self.scheduler = Agent(
             role="Interview Scheduling Coordinator",
             goal="Efficiently schedule interviews considering all parties' availability",
@@ -708,7 +721,14 @@ class CrewAgentSystem:
             verbose=True,
             allow_delegation=True,
             llm=llm,
-            tools=[shortlist_tool, reschedule_tool]
+            tools=[
+                # Database context tools
+                interview_context_tool, jobs_context_tool, candidates_context_tool,
+                # Calendar operation tools
+                calendar_availability_tool, schedule_interview_tool, reschedule_interview_tool,
+                # Core scheduler tools
+                shortlist_tool, reschedule_tool
+            ]
         )
         
         # Create the crew
@@ -855,7 +875,7 @@ class CrewAgentSystem:
                 3. New time preference
                 4. Reason for rescheduling
                 
-                If interview ID is not explicitly provided, you'll need to identify it from context.
+                If interview ID/round number/new time preference is not explicitly provided, you'll need to identify it from firebase db.
                 """,
                 expected_output="Confirmation of rescheduled interview with new details",
                 agent=self.scheduler
