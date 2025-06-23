@@ -20,7 +20,7 @@ import uuid
 # CrewAI imports
 from crewai import Agent, Task, Crew, Process
 from crewai.tools import BaseTool
-from langchain.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI
 
 # Service imports
 from app.services.candidate_service import CandidateService

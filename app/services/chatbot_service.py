@@ -1058,7 +1058,15 @@ These collections are related: jobs → candidates_data → interview_candidates
         """
         Generate a response using the chatbot
         """
-        logger.info(f"[CHATBOT] Generating response for user role: {user_role}")
+        # Normalize user role to ensure proper case matching
+        normalized_role = user_role.capitalize() if user_role.lower() in ["hr"] else user_role.title()
+
+        # Ensure the role is valid, default to HR if not
+        if normalized_role not in ROLES:
+            logger.warning(f"[CHATBOT] Invalid role '{user_role}', defaulting to HR")
+            normalized_role = "HR"
+
+        logger.info(f"[CHATBOT] Generating response for user role: {normalized_role}")
         logger.info(f"[CHATBOT] Message: {message}")
         logger.info(f"[CHATBOT] Conversation ID: {conversation_id}")
 
@@ -1079,13 +1087,15 @@ These collections are related: jobs → candidates_data → interview_candidates
 
             # Add role information and permissions
             role_info = {
-                "current_role": user_role,
-                "permissions": ROLES.get(user_role, {}),
-                "can_view_all_feedback": ChatbotService.check_permission(user_role, "view_all_feedback"),
-                "can_add_feedback_all": ChatbotService.check_permission(user_role, "add_feedback_all"),
-                "can_decide_next_round": ChatbotService.check_permission(user_role, "decide_next_round"),
-                "can_schedule_interview": ChatbotService.check_permission(user_role, "schedule_interview")
+                "current_role": normalized_role,
+                "permissions": ROLES.get(normalized_role, {}),
+                "can_view_all_feedback": ChatbotService.check_permission(normalized_role, "view_all_feedback"),
+                "can_add_feedback_all": ChatbotService.check_permission(normalized_role, "add_feedback_all"),
+                "can_decide_next_round": ChatbotService.check_permission(normalized_role, "decide_next_round"),
+                "can_schedule_interview": ChatbotService.check_permission(normalized_role, "schedule_interview")
             }
+
+        # Rest of the method remains the same...
 
             context_parts.append("USER ROLE AND PERMISSIONS:\n" + json.dumps(role_info, indent=2))
             context_parts.append("DATABASE SCHEMA:\n" + ChatbotService._get_database_schema())
@@ -1605,14 +1615,18 @@ These collections are related: jobs → candidates_data → interview_candidates
         Returns:
             True if the role has the permission, False otherwise
         """
-        if role not in ROLES:
-            logger.warning(f"[RBAC] Unknown role requested: {role}")
+        # Normalize role for case-insensitive comparison
+        normalized_role = role.capitalize() if role.lower() == "hr" else role.title()
+
+        if normalized_role not in ROLES:
+            logger.warning(f"[RBAC] Unknown role requested: {role} (normalized to {normalized_role})")
             return False
 
-        has_permission = ROLES[role].get(permission, False)
-        logger.info(f"[RBAC] Permission check: role={role}, permission={permission}, result={'GRANTED' if has_permission else 'DENIED'}")
+        has_permission = ROLES[normalized_role].get(permission, False)
+        logger.info(f"[RBAC] Permission check: role={normalized_role}, permission={permission}, result={'GRANTED' if has_permission else 'DENIED'}")
         return has_permission
-
+    
+    
     @staticmethod
     def validate_role_permission(role: str, permission: str) -> None:
         """
