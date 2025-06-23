@@ -24,31 +24,52 @@ class CalendarService:
     def get_calendar_service():
         """Get a service client for Google Calendar API using OAuth flow or service account"""
         try:
-            # Try using OAuth flow (preferred for user-level access)
-            if os.path.exists(CREDENTIALS_FILE):
-                print(f"Using OAuth flow with credentials file: {CREDENTIALS_FILE}")
-                try:
-                    flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
-                    creds = flow.run_local_server(port=3000)
-                    service = build("calendar", "v3", credentials=creds)
-                    return service
-                except Exception as oauth_error:
-                    print(f"OAuth flow failed: {oauth_error}. Falling back to service account.")
-                
-            # Fall back to service account (limited permissions)
-            print(f"Using calendar service account file: {SERVICE_ACCOUNT_FILE}")
+            # Check environment variables for proper configuration
+            print(f"Checking calendar service configuration...")
+            print(f"CREDENTIALS_FILE path: {CREDENTIALS_FILE}")
+            print(f"SERVICE_ACCOUNT_FILE path: {SERVICE_ACCOUNT_FILE}")
+            
+            # Skip OAuth flow in automated/bot environments - go directly to service account
+            print(f"Attempting to use calendar service account file: {SERVICE_ACCOUNT_FILE}")
             if os.path.exists(SERVICE_ACCOUNT_FILE):
-                credentials = service_account.Credentials.from_service_account_file(
-                    SERVICE_ACCOUNT_FILE, scopes=SCOPES
-                )
-                service = build('calendar', 'v3', credentials=credentials)
-                return service
+                try:
+                    credentials = service_account.Credentials.from_service_account_file(
+                        SERVICE_ACCOUNT_FILE, scopes=SCOPES
+                    )
+                    service = build('calendar', 'v3', credentials=credentials)
+                    
+                    # Test the service with a simple call
+                    try:
+                        service.calendars().get(calendarId='primary').execute()
+                        print("✅ Calendar service authenticated successfully")
+                        return service
+                    except Exception as test_error:
+                        print(f"⚠️ Calendar service test failed: {test_error}")
+                        # Service account might not have domain-wide delegation
+                        print("📝 Note: Service account may need domain-wide delegation for full calendar access")
+                        return service  # Return anyway, some functions might still work
+                        
+                except Exception as sa_error:
+                    print(f"❌ Service account authentication failed: {sa_error}")
+                    raise Exception(f"Service account configuration error: {sa_error}")
             else:
-                print(f"Calendar service account file not found at {SERVICE_ACCOUNT_FILE}")
-                raise FileNotFoundError(f"No valid credentials found for calendar access")
+                # File doesn't exist, provide detailed error
+                abs_path = os.path.abspath(SERVICE_ACCOUNT_FILE)
+                print(f"❌ Calendar service account file not found at: {abs_path}")
+                print(f"📋 Current working directory: {os.getcwd()}")
+                print(f"📋 Files in config directory:")
+                config_dir = os.path.dirname(SERVICE_ACCOUNT_FILE)
+                if os.path.exists(config_dir):
+                    for file in os.listdir(config_dir):
+                        print(f"   - {file}")
+                else:
+                    print(f"   Config directory doesn't exist: {config_dir}")
+                
+                raise FileNotFoundError(f"Calendar service account file not found at {abs_path}")
+                
         except Exception as e:
-            print(f"Error creating calendar service: {e}")
-            raise
+            print(f"❌ Critical error creating calendar service: {e}")
+            raise Exception(f"Calendar service configuration issue: {str(e)}")
     
     @staticmethod
     def generate_meet_code():

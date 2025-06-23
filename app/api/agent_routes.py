@@ -13,6 +13,7 @@ from datetime import datetime
 from app.schemas.agent_schema import AgentQueryRequest, AgentResponse, AgentSystemType
 from app.agents.crew_agent_system import get_agent_system
 from app.agents.langgraph_agent import get_langgraph_agent
+from app.agents.feedback_agent_system import get_feedback_agent_system
 
 # Create router
 router = APIRouter(
@@ -138,7 +139,14 @@ async def agent_query(sid, data):
         loop = asyncio.get_event_loop()
         
         def process_query():
-            if agent_system_type == 'langgraph':
+            # Check if this is a feedback-related query
+            feedback_keywords = ["update feedback", "feedback for", "update the feedback", "rating", "selected for next round", "interview feedback"]
+            
+            if any(keyword in query.lower() for keyword in feedback_keywords):
+                # Route to specialized feedback agent system
+                feedback_system = get_feedback_agent_system()
+                return feedback_system.process_feedback_query(query, session_id)
+            elif agent_system_type == 'langgraph':
                 # For LangGraph, we need job data
                 job_data = data.get('job_data', {
                     "job_role_name": "Software Engineer",
@@ -148,7 +156,7 @@ async def agent_query(sid, data):
                 candidate_data = data.get('candidate_data', None)
                 return agent_system.process_query(query, job_data, candidate_data)
             else:
-                # Default to CrewAI
+                # Default to CrewAI scheduling system
                 return agent_system.process_query(query, session_id)
         
         # Run in executor to not block the event loop

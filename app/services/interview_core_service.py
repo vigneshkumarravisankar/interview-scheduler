@@ -2,6 +2,7 @@
 Core interview candidate and interviewer management functionality
 """
 import uuid
+from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple
 from app.database.firebase_db import FirestoreDB
 
@@ -494,4 +495,416 @@ class InterviewCoreService:
             return interviewer_assignments
         except Exception as e:
             print(f"Error assigning interviewers: {e}")
+            return []
+    
+    @staticmethod
+    def update_interview_feedback(
+        interview_candidate_id: str, 
+        round_index: int, 
+        feedback: str, 
+        rating: int, 
+        is_selected_for_next_round: str,
+        interviewer_notes: Optional[str] = None
+    ) -> bool:
+        """
+        Update feedback for a specific interview round
+        
+        Args:
+            interview_candidate_id: ID of the interview candidate
+            round_index: Index of the interview round (0-based)
+            feedback: Interview feedback text
+            rating: Rating out of 10
+            is_selected_for_next_round: "yes", "no", or "pending"
+            interviewer_notes: Optional additional notes from interviewer
+        
+        Returns:
+            True if update was successful, False otherwise
+        """
+        try:
+            # Get the interview candidate record
+            candidate_record = InterviewCoreService.get_interview_candidate(interview_candidate_id)
+            if not candidate_record:
+                print(f"Interview candidate with ID {interview_candidate_id} not found")
+                return False
+            
+            # Get feedback array
+            feedback_array = candidate_record.get("feedback", [])
+            
+            # Validate round index
+            if round_index >= len(feedback_array) or round_index < 0:
+                print(f"Invalid round index {round_index}. Available rounds: 0-{len(feedback_array)-1}")
+                return False
+            
+            # Update feedback for the specified round
+            feedback_array[round_index].update({
+                "feedback": feedback,
+                "rating_out_of_10": rating,
+                "isSelectedForNextRound": is_selected_for_next_round,
+                "interviewer_notes": interviewer_notes,
+                "feedback_updated_at": datetime.now().isoformat()
+            })
+            
+            # Update completed rounds and status
+            completed_rounds = sum(1 for f in feedback_array if f.get("feedback") is not None)
+            
+            # Determine overall status
+            if is_selected_for_next_round == "no":
+                status = "rejected"
+            elif completed_rounds == len(feedback_array):
+                # All rounds completed
+                if all(f.get("isSelectedForNextRound") == "yes" for f in feedback_array if f.get("isSelectedForNextRound") is not None):
+                    status = "selected"
+                else:
+                    status = "completed"
+            else:
+                status = "in_progress"
+            
+            # Update the document
+            update_data = {
+                "feedback": feedback_array,
+                "completedRounds": completed_rounds,
+                "status": status,
+                "last_updated": datetime.now().isoformat()
+            }
+            
+            # If selected for next round, schedule it
+            if is_selected_for_next_round == "yes" and round_index + 1 < len(feedback_array):
+                from app.services.interview_schedule_service import InterviewScheduleService
+                InterviewScheduleService.schedule_next_round(interview_candidate_id)
+            
+            InterviewCoreService.update_interview_candidate(interview_candidate_id, update_data)
+            
+            print(f"✅ Feedback updated for round {round_index + 1} of interview candidate {interview_candidate_id}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error updating interview feedback: {e}")
+            return False
+    
+    @staticmethod
+    def get_interview_feedback(interview_candidate_id: str) -> Optional[List[Dict[str, Any]]]:
+        """
+        Get all feedback for an interview candidate
+        
+        Args:
+            interview_candidate_id: ID of the interview candidate
+        
+        Returns:
+            List of feedback records or None if not found
+        """
+        try:
+            candidate_record = InterviewCoreService.get_interview_candidate(interview_candidate_id)
+            if candidate_record:
+                return candidate_record.get("feedback", [])
+            return None
+        except Exception as e:
+            print(f"❌ Error getting interview feedback: {e}")
+            return None
+    
+    @staticmethod
+    def get_round_feedback(interview_candidate_id: str, round_index: int) -> Optional[Dict[str, Any]]:
+        """
+        Get feedback for a specific round
+        
+        Args:
+            interview_candidate_id: ID of the interview candidate
+            round_index: Index of the interview round (0-based)
+        
+        Returns:
+            Feedback record for the specified round or None if not found
+        """
+        try:
+            feedback_array = InterviewCoreService.get_interview_feedback(interview_candidate_id)
+            if feedback_array and 0 <= round_index < len(feedback_array):
+                return feedback_array[round_index]
+            return None
+        except Exception as e:
+            print(f"❌ Error getting round feedback: {e}")
+            return None
+    
+    @staticmethod
+    def bulk_update_feedback(feedback_updates: List[Dict[str, Any]]) -> List[bool]:
+        """
+        Update feedback for multiple interview candidates/rounds
+        
+        Args:
+            feedback_updates: List of feedback update dictionaries containing:
+                - interview_candidate_id: str
+                - round_index: int
+                - feedback: str
+                - rating: int
+                - is_selected_for_next_round: str
+                - interviewer_notes: Optional[str]
+        
+        Returns:
+            List of boolean results for each update
+        """
+        results = []
+        for update in feedback_updates:
+            try:
+                result = InterviewCoreService.update_interview_feedback(
+                    interview_candidate_id=update.get("interview_candidate_id"),
+                    round_index=update.get("round_index"),
+                    feedback=update.get("feedback"),
+                    rating=update.get("rating"),
+                    is_selected_for_next_round=update.get("is_selected_for_next_round"),
+                    interviewer_notes=update.get("interviewer_notes")
+                )
+                results.append(result)
+            except Exception as e:
+                print(f"❌ Error in bulk update for {update.get('interview_candidate_id')}: {e}")
+                results.append(False)
+        
+        return results
+    
+    @staticmethod
+    def get_candidates_by_status(status: str) -> List[Dict[str, Any]]:
+        """
+        Get interview candidates by their current status
+        
+        Args:
+            status: Status to filter by ("scheduled", "in_progress", "completed", "selected", "rejected")
+        
+        Returns:
+            List of interview candidates with the specified status
+        """
+        try:
+            all_candidates = InterviewCoreService.get_all_interview_candidates()
+            return [c for c in all_candidates if c.get('status') == status]
+        except Exception as e:
+            print(f"❌ Error getting candidates by status: {e}")
+            return []
+    
+    @staticmethod
+    def get_interviewer_feedback_summary(interviewer_id: str) -> Dict[str, Any]:
+        """
+        Get feedback summary for a specific interviewer
+        
+        Args:
+            interviewer_id: ID of the interviewer
+        
+        Returns:
+            Summary of feedback statistics for the interviewer
+        """
+        try:
+            all_candidates = InterviewCoreService.get_all_interview_candidates()
+            
+            total_interviews = 0
+            total_rating = 0
+            selections = 0
+            rejections = 0
+            
+            for candidate in all_candidates:
+                feedback_array = candidate.get("feedback", [])
+                for feedback in feedback_array:
+                    if feedback.get("interviewer_id") == interviewer_id and feedback.get("feedback"):
+                        total_interviews += 1
+                        rating = feedback.get("rating_out_of_10", 0)
+                        if rating:
+                            total_rating += int(rating)
+                        
+                        selection = feedback.get("isSelectedForNextRound")
+                        if selection == "yes":
+                            selections += 1
+                        elif selection == "no":
+                            rejections += 1
+            
+            average_rating = total_rating / total_interviews if total_interviews > 0 else 0
+            
+            return {
+                "interviewer_id": interviewer_id,
+                "total_interviews": total_interviews,
+                "average_rating": round(average_rating, 2),
+                "selections": selections,
+                "rejections": rejections,
+                "selection_rate": round((selections / total_interviews * 100), 2) if total_interviews > 0 else 0
+            }
+            
+        except Exception as e:
+            print(f"❌ Error getting interviewer feedback summary: {e}")
+            return {}
+    
+    @staticmethod
+    def update_feedback_by_natural_input(
+        candidate_name: str,
+        job_role_name: str, 
+        round_number: int,
+        is_selected_for_next_round: str,
+        rating_out_of_10: int,
+        feedback_text: str
+    ) -> bool:
+        """
+        Update interview feedback using natural language input
+        
+        Args:
+            candidate_name: Name of the candidate
+            job_role_name: Job role name 
+            round_number: Round number (1-based, e.g., 1, 2, 3, 4)
+            is_selected_for_next_round: "yes", "no", or "pending"
+            rating_out_of_10: Rating from 1-10
+            feedback_text: Feedback in natural language sentence
+        
+        Returns:
+            True if update was successful, False otherwise
+        """
+        try:
+            # Get all interview candidates
+            all_candidates = InterviewCoreService.get_all_interview_candidates()
+            
+            # Find candidate by name and job role
+            matching_candidate = None
+            for candidate in all_candidates:
+                candidate_name_match = candidate.get("candidate_name", "").lower() == candidate_name.lower()
+                job_role_match = candidate.get("job_role", "").lower() == job_role_name.lower()
+                
+                if candidate_name_match and job_role_match:
+                    matching_candidate = candidate
+                    break
+            
+            if not matching_candidate:
+                print(f"❌ No candidate found with name '{candidate_name}' and job role '{job_role_name}'")
+                return False
+            
+            # Validate round number (convert from 1-based to 0-based)
+            round_index = round_number - 1
+            feedback_array = matching_candidate.get("feedback", [])
+            
+            if round_index < 0 or round_index >= len(feedback_array):
+                print(f"❌ Invalid round number {round_number}. Available rounds: 1-{len(feedback_array)}")
+                return False
+            
+            # Validate rating
+            if rating_out_of_10 < 1 or rating_out_of_10 > 10:
+                print(f"❌ Invalid rating {rating_out_of_10}. Must be between 1-10")
+                return False
+            
+            # Validate selection status
+            valid_selections = ["yes", "no", "pending"]
+            if is_selected_for_next_round.lower() not in valid_selections:
+                print(f"❌ Invalid selection status '{is_selected_for_next_round}'. Must be: {valid_selections}")
+                return False
+            
+            # Update the feedback for the specified round
+            feedback_array[round_index].update({
+                "feedback": feedback_text,
+                "rating_out_of_10": rating_out_of_10,
+                "isSelectedForNextRound": is_selected_for_next_round.lower(),
+                "feedback_updated_at": datetime.now().isoformat()
+            })
+            
+            # Calculate completed rounds
+            completed_rounds = sum(1 for f in feedback_array if f.get("feedback") is not None)
+            
+            # Determine overall status
+            if is_selected_for_next_round.lower() == "no":
+                status = "rejected"
+            elif completed_rounds == len(feedback_array):
+                # All rounds completed - check if all selected
+                all_selected = all(
+                    f.get("isSelectedForNextRound") == "yes" 
+                    for f in feedback_array 
+                    if f.get("isSelectedForNextRound") is not None
+                )
+                status = "selected" if all_selected else "completed"
+            else:
+                status = "in_progress"
+            
+            # Update next round index
+            next_round_index = completed_rounds if completed_rounds < len(feedback_array) else len(feedback_array)
+            
+            # Prepare update data
+            update_data = {
+                "feedback": feedback_array,
+                "completedRounds": completed_rounds,
+                "nextRoundIndex": next_round_index,
+                "status": status,
+                "last_updated": datetime.now().isoformat()
+            }
+            
+            # Update current_round_scheduled based on status
+            if is_selected_for_next_round.lower() == "yes" and next_round_index < len(feedback_array):
+                update_data["current_round_scheduled"] = False  # Next round needs to be scheduled
+                
+                # Trigger next round scheduling
+                try:
+                    from app.services.interview_schedule_service import InterviewScheduleService
+                    InterviewScheduleService.schedule_next_round(matching_candidate.get("id"))
+                    update_data["current_round_scheduled"] = True
+                except Exception as schedule_error:
+                    print(f"⚠️ Warning: Could not schedule next round: {schedule_error}")
+            
+            # Update the document in Firebase
+            InterviewCoreService.update_interview_candidate(matching_candidate.get("id"), update_data)
+            
+            print(f"✅ Feedback updated for {candidate_name} - {job_role_name} - Round {round_number}")
+            print(f"   Rating: {rating_out_of_10}/10")
+            print(f"   Selection: {is_selected_for_next_round}")
+            print(f"   Status: {status}")
+            print(f"   Completed Rounds: {completed_rounds}/{len(feedback_array)}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error updating feedback by natural input: {e}")
+            return False
+    
+    @staticmethod
+    def get_candidate_by_name_and_role(candidate_name: str, job_role_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get interview candidate by name and job role
+        
+        Args:
+            candidate_name: Name of the candidate
+            job_role_name: Job role name
+        
+        Returns:
+            Interview candidate data or None if not found
+        """
+        try:
+            all_candidates = InterviewCoreService.get_all_interview_candidates()
+            
+            for candidate in all_candidates:
+                candidate_name_match = candidate.get("candidate_name", "").lower() == candidate_name.lower()
+                job_role_match = candidate.get("job_role", "").lower() == job_role_name.lower()
+                
+                if candidate_name_match and job_role_match:
+                    return candidate
+            
+            return None
+            
+        except Exception as e:
+            print(f"❌ Error getting candidate by name and role: {e}")
+            return None
+    
+    @staticmethod
+    def list_candidates_for_feedback() -> List[Dict[str, Any]]:
+        """
+        List all candidates with their current feedback status for easy reference
+        
+        Returns:
+            List of candidate summaries with feedback status
+        """
+        try:
+            all_candidates = InterviewCoreService.get_all_interview_candidates()
+            candidate_summaries = []
+            
+            for candidate in all_candidates:
+                feedback_array = candidate.get("feedback", [])
+                completed_rounds = sum(1 for f in feedback_array if f.get("feedback") is not None)
+                
+                summary = {
+                    "candidate_name": candidate.get("candidate_name"),
+                    "job_role": candidate.get("job_role"),
+                    "status": candidate.get("status"),
+                    "completed_rounds": f"{completed_rounds}/{len(feedback_array)}",
+                    "total_rounds": len(feedback_array),
+                    "id": candidate.get("id"),
+                    "next_round": completed_rounds + 1 if completed_rounds < len(feedback_array) else "All completed"
+                }
+                candidate_summaries.append(summary)
+            
+            return candidate_summaries
+            
+        except Exception as e:
+            print(f"❌ Error listing candidates for feedback: {e}")
             return []
