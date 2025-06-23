@@ -177,7 +177,7 @@ async def agent_query(sid, data):
             'response': str(result.get('response', '')),
             'primary_agent': result.get('primary_agent', ''),
             'timestamp': datetime.now().isoformat(),
-            # Don't include thought_process in the final response as it might contain non-serializable objects
+            
         }
         
         # Wait a moment after the thoughts are displayed before showing the final response
