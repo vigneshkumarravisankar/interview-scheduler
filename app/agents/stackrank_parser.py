@@ -52,8 +52,8 @@ def parse_stackrank_request(request_text: str) -> Dict[str, Any]:
         
         {{
           "job_role_name": "",              # Job role name
-          "joining_date": "",               # Joining date if mentioned (format: YYYY-MM-DD)
-          "compensation_offered": "",       # Compensation if mentioned
+          "joining_date": "2025-08-10",    # Joining date (default: August 10th, 2025)
+          "compensation_offered": "7.5 LPA",  # Compensation package
           "send_offer_letters": true,       # Whether to send offer letters
           "top_percentage": 1,              # Percentage of top candidates to select (default: 1)
           "action_type": "stackrank"        # Type of action requested
@@ -64,8 +64,8 @@ def parse_stackrank_request(request_text: str) -> Dict[str, Any]:
         
         IMPORTANT:
         - Extract job role exactly as written
-        - If joining date is mentioned, format as YYYY-MM-DD (e.g., "July 10th, 2025" becomes "2025-07-10")
-        - If compensation is mentioned, extract the amount with currency/units
+        - If joining date is mentioned, format as YYYY-MM-DD, otherwise use "2025-08-10" (August 10th, 2025)
+        - If compensation is mentioned, extract the amount with currency/units, otherwise use "7.5 LPA"
         - If request mentions "send offer" or "offer letter", set send_offer_letters to true
         - Default top_percentage to 1 unless specifically mentioned
         - Return ONLY valid JSON with no additional text or explanations

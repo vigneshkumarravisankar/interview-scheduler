@@ -510,7 +510,7 @@ def send_offer_letter_email(
     job_role: str,
     joining_date: str,
     compensation: str,
-    total_score: int,
+    total_score: int = None,
     company_name: str = "YourCompany Inc.",
     hr_name: str = "HR Representative",
     hr_email: str = "hr@company.com"
@@ -650,10 +650,10 @@ def send_offer_letter_email(
                             <td>Joining Date:</td>
                             <td>{joining_date}</td>
                         </tr>
-                        <tr>
+                        {f'''<tr>
                             <td>Interview Score:</td>
                             <td>{total_score}/40 - Excellent Performance! 🌟</td>
-                        </tr>
+                        </tr>''' if total_score is not None else ''}
                     </table>
                     
                     <p>This offer includes our comprehensive benefits package, including:</p>

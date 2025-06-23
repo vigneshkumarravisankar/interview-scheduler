@@ -215,8 +215,7 @@ class SendOfferLettersTool(BaseTool):
                 candidate_email=candidate['email'],
                 job_role=job_role_name,
                 joining_date=joining_date,
-                compensation=compensation_offered,
-                total_score=candidate['total_score']
+                compensation=compensation_offered
             )
         except Exception as e:
             logger.error(f"Error sending offer email: {e}")

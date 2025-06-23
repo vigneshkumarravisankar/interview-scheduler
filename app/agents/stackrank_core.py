@@ -135,12 +135,11 @@ def stackrank_candidates_by_job_role(
                 "job_id": candidate.get('job_id', ''),
                 "candidate_id": candidate.get('id', ''),
                 "job_role": job_role_name,
-                "compensation_offered": compensation_offered,
+                "compensation_offered": compensation_offered if compensation_offered else "7.5 LPA",
                 "email": candidate.get('candidate_email', ''),
-                "total_score": candidate.get('total_score', 0),
                 "status": "selected",
                 "created_at": datetime.now().isoformat(),
-                "joining_date": joining_date if joining_date else "",
+                "joining_date": joining_date if joining_date else "2025-08-10",
                 "interview_feedback": candidate.get('feedback', [])  # Include original feedback for reference
             }
             
