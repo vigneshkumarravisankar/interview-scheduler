@@ -12,7 +12,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Initialize OpenAI client
-openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+# Get API key from environment variable or use a default for testing
+api_key = os.environ.get("OPENAI_API_KEY", "your_openai_api_key_here")
+openai_client = OpenAI(api_key=api_key)
 
 
 def extract_text_from_pdf(file_path: str) -> str:

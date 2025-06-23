@@ -10,7 +10,7 @@ import logging
 
 from langchain.prompts import ChatPromptTemplate
 from langchain.schema import Document
-from langchain.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END

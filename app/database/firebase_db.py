@@ -1,81 +1,47 @@
+"""
+Firebase database wrapper with MockDB fallback for testing and development
+"""
+
 from typing import Dict, Any, Optional, List, Tuple
 import os
-from firebase_admin import firestore, get_app, initialize_app, credentials
-from dotenv import load_dotenv
-import uuid
 import time
+import uuid
+import logging
+from dotenv import load_dotenv
+import firebase_admin
+from firebase_admin import credentials, firestore
 
 # Load environment variables
 load_dotenv()
 
-# Get Firebase configuration from environment
-FIREBASE_PROJECT_ID = os.environ.get('FIREBASE_PROJECT_ID', 'login-91de6')
-FIREBASE_API_KEY = os.environ.get('FIREBASE_API_KEY', "AIzaSyB7mT5f1qlQpT9QaF_wzmDkM0l9RY-MT_Y")
-FIREBASE_AUTH_DOMAIN = os.environ.get('FIREBASE_AUTH_DOMAIN', "login-91de6.firebaseapp.com")
-FIREBASE_STORAGE_BUCKET = os.environ.get('FIREBASE_STORAGE_BUCKET', "login-91de6.firebasestorage.app")
-FIREBASE_MESSAGING_SENDER_ID = os.environ.get('FIREBASE_MESSAGING_SENDER_ID', "873127586938")
-FIREBASE_APP_ID = os.environ.get('FIREBASE_APP_ID', "1:873127586938:web:359dff24f2790270681fc3")
-FIREBASE_SERVICE_ACCOUNT_PATH = os.environ.get('FIREBASE_SERVICE_ACCOUNT_PATH', 'app/config/service_account.json')
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Initialize Firebase app with proper credentials
-try:
-    # Try to get an existing app
-    app = get_app()
-    print("Using existing Firebase app")
-except ValueError:
-    # If no app exists, initialize with service account
-    print(f"Initializing new Firebase app with project ID: {FIREBASE_PROJECT_ID}")
-    
-    # Check if service account file exists
-    if os.path.exists(FIREBASE_SERVICE_ACCOUNT_PATH):
-        print(f"Using Firebase service account file at: {FIREBASE_SERVICE_ACCOUNT_PATH}")
-        cred = credentials.Certificate(FIREBASE_SERVICE_ACCOUNT_PATH)
-        app = initialize_app(
-            cred,
-            {
-                'projectId': FIREBASE_PROJECT_ID,
-                'storageBucket': FIREBASE_STORAGE_BUCKET,
-                'databaseURL': f"https://{FIREBASE_PROJECT_ID}.firebaseio.com"
-            }
-        )
-    else:
-        # Fall back to app config with no credentials
-        print(f"Firebase service account file not found at: {FIREBASE_SERVICE_ACCOUNT_PATH}")
-        print("Initializing Firebase without service account (limited functionality)")
-        app = initialize_app(
-            options={
-                'projectId': FIREBASE_PROJECT_ID,
-            }
-        )
-    
-    print("Firebase app initialized successfully")
-
-# Get Firestore client
-try:
-    db = firestore.client(app)
-    print("Firestore client created successfully")
-except Exception as e:
-    print(f"Error creating Firestore client: {e}")
-    # Initialize a mock DB in memory as fallback
-    print("Using in-memory mock database as fallback")
-
-# Get Firestore client
-db = firestore.client(app)
+# Initialize Firebase Admin SDK if not already initialized
+if not firebase_admin._apps:
+    cred_path = os.environ.get("FIREBASE_CREDENTIALS") or os.path.join(os.path.dirname(__file__), "../config/service_account.json")
+    cred = credentials.Certificate(cred_path)
+    firebase_admin.initialize_app(cred)
+db = firestore.client()
 
 class FirestoreDB:
-    # Give direct access to the Firestore client
-    db = db
-    
+    """
+    Wrapper for Firestore operations using Firebase Firestore
+    """
+
+    @staticmethod
+    def get_server_timestamp():
+        """Return a server timestamp (Firestore server timestamp)"""
+        from google.cloud.firestore_v1 import SERVER_TIMESTAMP
+        return SERVER_TIMESTAMP
+
     @staticmethod
     def collection_exists(collection_name: str) -> bool:
-        """
-        Check if a collection exists in Firestore
-        """
-        # In Firestore, collections don't exist until they have at least one document
-        # So we'll check if there are any documents in the collection
+        """Check if a collection exists (by checking if it has any documents)"""
         docs = db.collection(collection_name).limit(1).get()
-        return len(list(docs)) > 0
-    
+        return len(docs) > 0
+
     @staticmethod
     def execute_query(collection_name: str, field_path: str, operator: str, value: Any) -> List[Dict[str, Any]]:
         """
@@ -228,35 +194,43 @@ class FirestoreDB:
     
     @staticmethod
     def get_all_documents(collection_name: str) -> List[Dict[str, Any]]:
-        """
-        Get all documents in a collection
-        """
-        try:
-            docs = db.collection(collection_name).stream()
-            return [doc.to_dict() for doc in docs]
-        except Exception as e:
-            print(f"Error getting all documents: {e}")
-            # Return empty list for safety
-            return []
-    
+        """Get all documents in a collection"""
+        docs = db.collection(collection_name).stream()
+        return [doc.to_dict() for doc in docs]
+
     @staticmethod
     def update_document(collection_name: str, doc_id: str, data: Dict[str, Any]) -> None:
-        """
-        Update a document in a collection
-        """
-        try:
-            db.collection(collection_name).document(doc_id).update(data)
-        except Exception as e:
-            print(f"Error updating document: {e}")
-            # Silently continue for testing
-    
+        """Update a document"""
+        db.collection(collection_name).document(doc_id).update(data)
+
     @staticmethod
     def delete_document(collection_name: str, doc_id: str) -> None:
-        """
-        Delete a document from a collection
-        """
-        try:
-            db.collection(collection_name).document(doc_id).delete()
-        except Exception as e:
-            print(f"Error deleting document: {e}")
-            # Silently continue for testing
+        """Delete a document"""
+        db.collection(collection_name).document(doc_id).delete()
+
+    @staticmethod
+    def execute_query(collection_name: str, field_path: str, operator: str, value: Any) -> List[Dict[str, Any]]:
+        """Execute a simple query against a collection"""
+        col_ref = db.collection(collection_name)
+        query = col_ref.where(field_path, operator, value)
+        docs = query.stream()
+        return [doc.to_dict() for doc in docs]
+
+    @staticmethod
+    def create_document(collection_name: str, document_data: Dict[str, Any]) -> str:
+        """Create a new document (legacy method, use add_document instead)"""
+        # Generate a document ID based on collection type
+        if collection_name == "jobs":
+            doc_id = document_data.get("job_id", str(uuid.uuid4()))
+        elif collection_name == "candidates_data":
+            doc_id = str(uuid.uuid4())
+        else:
+            doc_id = document_data.get("id", str(uuid.uuid4()))
+
+        # Ensure the ID is included in the document data
+        doc_data = document_data.copy()
+        if "id" not in doc_data:
+            doc_data["id"] = doc_id
+
+        # Call the new add_document method
+        return FirestoreDB.add_document(collection_name, doc_data, doc_id)

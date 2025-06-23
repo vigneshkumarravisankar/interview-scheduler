@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 # CrewAI imports
 from crewai import Agent, Task, Crew, Process
 from crewai.tools import BaseTool
-from langchain.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI
 
 # Service imports
 from app.utils.calendar_service import CalendarService, create_calendar_event

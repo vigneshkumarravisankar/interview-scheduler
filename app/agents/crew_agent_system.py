@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from openai import OpenAI
 from crewai import Agent, Task, Crew, Process
 from crewai.tools import BaseTool
-from langchain.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI
 from app.services.interview_shortlist_service import InterviewShortlistService
 from app.services.interview_core_service import InterviewCoreService
 from app.utils.calendar_service import CalendarService, create_calendar_event
