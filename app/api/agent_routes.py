@@ -13,7 +13,6 @@ from datetime import datetime
 from app.schemas.agent_schema import AgentQueryRequest, AgentResponse, AgentSystemType
 from app.agents.crew_agent_system import get_agent_system
 from app.agents.langgraph_agent import get_langgraph_agent
-from app.agents.feedback_agent_system import get_feedback_agent_system
 from app.agents.stackrank_agent_system import get_stackrank_agent_system
 
 # Create router
@@ -145,10 +144,7 @@ async def agent_query(sid, data):
             
             # Check if this is a stackranking-related query
             stackrank_keywords = [
-                "stackrank", "stack rank", "top profiles", "offer letter", "send offer", 
-                "final selection", "best candidates", "highest score", "send them offer",
-                "fullstack developer", "developer role", "joining date", "july 10th",
-                "rank candidates", "select top", "hire candidates", "top candidate"
+                "stackrank"
             ]
             
             if any(keyword in query.lower() for keyword in feedback_keywords):
@@ -169,7 +165,7 @@ async def agent_query(sid, data):
                 candidate_data = data.get('candidate_data', None)
                 return agent_system.process_query(query, job_data, candidate_data)
             else:
-                # Default to CrewAI scheduling system
+                # Default to CrewAI
                 return agent_system.process_query(query, session_id)
         
         # Run in executor to not block the event loop

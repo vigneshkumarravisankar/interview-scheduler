@@ -473,78 +473,6 @@ class ShortlistCandidatesTool(BaseTool):
             logger.error(f"Error shortlisting candidates: {e}")
             return f"Error shortlisting candidates: {str(e)}"
             
-class UpdateInterviewFeedbackTool(BaseTool):
-    name: str = "UpdateInterviewFeedback"
-    description: str = "Update interview feedback for a candidate's specific round using natural language input"
-    
-    # Define schema for the tool
-    class InputSchema(BaseModel):
-        candidate_name: str = Field(description="Name of the candidate")
-        job_role_name: str = Field(description="Job role name")
-        round_number: int = Field(description="Round number (1-based, e.g., 1, 2, 3, 4)")
-        is_selected_for_next_round: str = Field(description="Selection status: 'yes', 'no', or 'pending'")
-        rating_out_of_10: int = Field(description="Rating from 1-10")
-        feedback_text: str = Field(description="Feedback in natural language sentence")
-    
-    # Set the argument schema
-    args_schema = InputSchema
-    
-    def _run(
-        self, 
-        candidate_name: str, 
-        job_role_name: str, 
-        round_number: int,
-        is_selected_for_next_round: str,
-        rating_out_of_10: int,
-        feedback_text: str
-    ) -> str:
-        """
-        Update interview feedback using natural language input
-        
-        Args:
-            candidate_name: Name of the candidate
-            job_role_name: Job role name
-            round_number: Round number (1-based)
-            is_selected_for_next_round: Selection status
-            rating_out_of_10: Rating from 1-10
-            feedback_text: Feedback text
-        
-        Returns:
-            String with update results
-        """
-        try:
-            logger.info(f"Updating feedback for {candidate_name} - {job_role_name} - Round {round_number}")
-            
-            # Use the natural language feedback update function
-            success = InterviewCoreService.update_feedback_by_natural_input(
-                candidate_name=candidate_name,
-                job_role_name=job_role_name,
-                round_number=round_number,
-                is_selected_for_next_round=is_selected_for_next_round,
-                rating_out_of_10=rating_out_of_10,
-                feedback_text=feedback_text
-            )
-            
-            if success:
-                return f"""
-✅ Successfully updated feedback for {candidate_name}!
-
-Details:
-- Job Role: {job_role_name}
-- Round: {round_number}
-- Rating: {rating_out_of_10}/10
-- Selection: {is_selected_for_next_round}
-- Feedback: {feedback_text}
-
-The candidate's status has been updated in the system and next steps have been initiated if selected.
-"""
-            else:
-                return f"❌ Failed to update feedback for {candidate_name} - {job_role_name} - Round {round_number}. Please check if the candidate exists and the round number is valid."
-                
-        except Exception as e:
-            logger.error(f"Error updating interview feedback: {e}")
-            return f"❌ Error updating feedback: {str(e)}"
-
 class RescheduleInterviewTool(BaseTool):
     name: str = "RescheduleInterview"
     description: str = "Reschedule an interview for a candidate at a different time"
@@ -744,7 +672,6 @@ class CrewAgentSystem:
         resume_processing_tool = ProcessResumesTool()
         shortlist_tool = ShortlistCandidatesTool()
         reschedule_tool = RescheduleInterviewTool()
-        feedback_update_tool = UpdateInterviewFeedbackTool()
         
         # Create database context tools
         interview_context_tool = GetInterviewCandidatesTool()
@@ -800,7 +727,7 @@ class CrewAgentSystem:
                 # Calendar operation tools
                 calendar_availability_tool, schedule_interview_tool, reschedule_interview_tool,
                 # Core scheduler tools
-                shortlist_tool, reschedule_tool, feedback_update_tool
+                shortlist_tool, reschedule_tool
             ]
         )
         
