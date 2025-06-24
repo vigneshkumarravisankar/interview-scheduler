@@ -39,20 +39,77 @@ llm = ChatOpenAI(
 
 class ShortlistCandidatesTool(BaseTool):
     name: str = "ShortlistCandidates"
-    description: str = "Shortlist top N candidates for interviews based on AI fit scores and schedule interviews"
+    description: str = "Shortlist top N candidates for interviews based on AI fit scores and schedule interviews using job role name or job ID"
     
     class InputSchema(BaseModel):
-        job_id: str = Field(description="ID of the job to shortlist candidates for")
+        job_details: str = Field(description="Job role name or job ID to shortlist candidates for")
         number_of_candidates: int = Field(description="Number of candidates to shortlist", default=3)
         number_of_rounds: int = Field(description="Number of interview rounds", default=2)
         specific_time: str = Field(description="Specific time for interviews (optional, format: 'YYYY-MM-DD HH:MM')", default="")
     
     args_schema = InputSchema
     
-    def _run(self, job_id: str, number_of_candidates: int = 3, number_of_rounds: int = 2, specific_time: str = "") -> str:
+    def _run(self, job_details: str, number_of_candidates: int = 3, number_of_rounds: int = 2, specific_time: str = "") -> str:
         """Shortlist candidates for interviews based on AI fit scores and schedule interviews"""
+        from app.services.job_service import JobService
+        
         try:
-            logger.info(f"Shortlisting candidates for job {job_id}, top {number_of_candidates} candidates, {number_of_rounds} rounds")
+            logger.info(f"Shortlisting candidates for job {job_details}, top {number_of_candidates} candidates, {number_of_rounds} rounds")
+            
+            # Extract job ID from job_details (could be job role name or job ID)
+            job_id = None
+            
+            # Check if it's already a job ID (typically UUIDs or specific format)
+            if re.match(r'^[a-zA-Z0-9\-_]{8,}$', job_details):
+                # Looks like a job ID, verify it exists
+                job = JobService.get_job_posting(job_details)
+                if job:
+                    job_id = job_details
+                    job_role_name = job.job_role_name
+                else:
+                    return f"No job found with ID: {job_details}"
+            
+            # If not a valid job ID, treat as job role name
+            if not job_id:
+                job_role_name = job_details.strip()
+                logger.info(f"Searching for job with role: {job_role_name}")
+                
+                # Get all jobs and search for matches
+                all_jobs = JobService.get_all_job_postings()
+                
+                # First try exact title match
+                matching_jobs = [job for job in all_jobs if job_role_name.lower() == job.job_role_name.lower()]
+                
+                # If no exact match, try contains match
+                if not matching_jobs:
+                    matching_jobs = [job for job in all_jobs if job_role_name.lower() in job.job_role_name.lower()]
+                    
+                # If still no match, try fuzzy matching - look for common words
+                if not matching_jobs:
+                    job_role_words = set(job_role_name.lower().split())
+                    for job in all_jobs:
+                        job_name_words = set(job.job_role_name.lower().split())
+                        # If at least 50% of words match
+                        if job_role_words and job_name_words and len(job_role_words.intersection(job_name_words)) / len(job_role_words) >= 0.5:
+                            matching_jobs.append(job)
+                
+                if matching_jobs:
+                    job_id = matching_jobs[0].job_id
+                    job_role_name = matching_jobs[0].job_role_name
+                    logger.info(f"Found job ID {job_id} for role {job_role_name}")
+                else:
+                    # List available jobs to help the user
+                    all_jobs = JobService.get_all_job_postings()
+                    job_list = "\n".join([f"- {job.job_role_name} (ID: {job.job_id})" for job in all_jobs[:5]])
+                    
+                    if all_jobs:
+                        available_jobs = f"\n\nAvailable jobs:\n{job_list}"
+                        if len(all_jobs) > 5:
+                            available_jobs += f"\n...and {len(all_jobs) - 5} more"
+                    else:
+                        available_jobs = "\n\nThere are no jobs in the system. Please create a job first."
+                    
+                    return f"No job found matching '{job_role_name}'. Please provide a valid job role name or job ID.{available_jobs}"
             
             if specific_time:
                 logger.info(f"Specific time requested: {specific_time}")
@@ -113,8 +170,8 @@ class ShortlistCandidatesTool(BaseTool):
             return response
             
         except Exception as e:
-            logger.error(f"Error shortlisting candidates: {e}")
-            return f"Error shortlisting candidates: {str(e)}"
+            logger.error(f"Error shortlisting candidates: {e}") 
+            return f"Error shortlisting candidates: {str(e)}" 
 
 class ScheduleInterviewTool(BaseTool):
     name: str = "ScheduleInterview"
@@ -283,7 +340,7 @@ class GetInterviewCandidatesTool(BaseTool):
         """Get list of interview candidates"""
         try:
             if job_id:
-                candidates = InterviewCoreService.get_candidates_by_job(job_id)
+                candidates = InterviewCoreService.get_interview_candidates_by_job_id(job_id)
             else:
                 candidates = InterviewCoreService.get_all_interview_candidates()
             
