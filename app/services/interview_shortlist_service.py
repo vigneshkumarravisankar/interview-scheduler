@@ -109,10 +109,29 @@ class InterviewShortlistService:
                 print(f"Error checking for existing interviews: {e}")
                 existing_interviews = []
             
+            # Get job skills for technical interviewer matching
+            job_skills = None
+            if hasattr(job, 'technical_skills_required'):
+                job_skills = job.technical_skills_required
+            elif hasattr(job, 'job_description'):
+                # Extract common technical skills from job description
+                job_desc_lower = job.job_description.lower()
+                common_skills = ['python', 'java', 'javascript', 'react', 'angular', 'node.js', 'spring', 'django', 'aws', 'docker', 'kubernetes']
+                job_skills = [skill for skill in common_skills if skill in job_desc_lower]
+            
+            # Get job role name for role-specific matching
+            job_role_name = None
+            if hasattr(job, 'job_role_name'):
+                job_role_name = job.job_role_name
+            elif hasattr(job, 'title'):
+                job_role_name = job.title
+            
             # Get interviewer assignments for each round
             interviewer_assignments = InterviewCoreService.assign_interviewers(
                 no_of_interviews,
-                specific_interviewers
+                specific_interviewers,
+                job_skills,
+                job_role_name
             )
             
             # Create interview candidate records

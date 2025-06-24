@@ -20,6 +20,7 @@ from fastapi import BackgroundTasks
 
 from app.utils.oauth_manager import OAuthManager
 from app.schemas.final_candidate_schema import FinalCandidateResponse
+from app.utils.offer_letter_generator import create_offer_letter_pdf
 from app.utils.pdf_generator import generate_offer_letter_pdf
 
 
@@ -501,3 +502,292 @@ class EmailService:
         # Add task to background tasks queue
         background_tasks.add_task(_send_offer_task, candidate, job_title, company_name, hr_name, hr_email)
         return True
+
+
+def send_offer_letter_email(
+    candidate_name: str,
+    candidate_email: str,
+    job_role: str,
+    joining_date: str,
+    compensation: str,
+    total_score: int = None,
+    company_name: str = "YourCompany Inc.",
+    hr_name: str = "HR Representative",
+    hr_email: str = "hr@company.com"
+) -> bool:
+    """
+    Enhanced function to send offer letter email with PDF attachment (for use by agent systems)
+    
+    Args:
+        candidate_name: Name of the candidate
+        candidate_email: Email of the candidate
+        job_role: Job role/title
+        joining_date: Joining date
+        compensation: Compensation offered
+        total_score: Total interview score
+        company_name: Company name
+        hr_name: HR representative name
+        hr_email: HR representative email
+    
+    Returns:
+        True if email was sent successfully, False otherwise
+    """
+    try:
+        print(f"📧 Preparing offer letter email for {candidate_name}")
+        
+        # Generate PDF offer letter
+        print("📄 Generating PDF offer letter...")
+        pdf_path = create_offer_letter_pdf(
+            name=candidate_name,
+            job_title=job_role,
+            joining_date=joining_date,
+            compensation=compensation
+        )
+        
+        # Create HTML content for the email
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Job Offer: {job_role} Position</title>
+            <style>
+                body {{
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    line-height: 1.6;
+                    margin: 0;
+                    padding: 0;
+                    color: #333;
+                    background-color: #f9f9f9;
+                }}
+                .container {{
+                    max-width: 650px;
+                    margin: 0 auto;
+                    background-color: #ffffff;
+                    padding: 30px;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                }}
+                .header {{
+                    text-align: center;
+                    margin-bottom: 30px;
+                    border-bottom: 2px solid #2c5282;
+                    padding-bottom: 20px;
+                }}
+                .header h1 {{
+                    color: #2c5282;
+                    margin-bottom: 10px;
+                    font-weight: 600;
+                }}
+                .content {{
+                    margin-bottom: 30px;
+                }}
+                .highlight {{
+                    font-weight: bold;
+                    color: #2c5282;
+                }}
+                .details-table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin: 20px 0;
+                }}
+                .details-table td {{
+                    padding: 10px;
+                    border-bottom: 1px solid #eaeaea;
+                }}
+                .details-table td:first-child {{
+                    width: 150px;
+                    font-weight: bold;
+                    color: #4a5568;
+                }}
+                .signature {{
+                    margin-top: 40px;
+                    border-top: 1px solid #eaeaea;
+                    padding-top: 20px;
+                }}
+                .footer {{
+                    text-align: center;
+                    margin-top: 40px;
+                    color: #718096;
+                    font-size: 0.9em;
+                }}
+                .attachment-notice {{
+                    background-color: #e6f3ff;
+                    border: 1px solid #2c5282;
+                    padding: 15px;
+                    border-radius: 5px;
+                    margin: 20px 0;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>{company_name}</h1>
+                    <p>Job Offer Letter | {datetime.now().strftime("%B %d, %Y")}</p>
+                </div>
+                
+                <div class="content">
+                    <p>Dear <span class="highlight">{candidate_name}</span>,</p>
+                    
+                    <p>🎉 <strong>Congratulations!</strong> We are delighted to offer you the position of <span class="highlight">{job_role}</span> at {company_name}. 
+                    After careful evaluation of your exceptional performance during the interview process, we are confident that you will be a valuable addition to our team.</p>
+                    
+                    <div class="attachment-notice">
+                        <p><strong>📎 Important:</strong> Please find attached the formal offer letter PDF with complete details, terms, and conditions.</p>
+                    </div>
+                    
+                    <table class="details-table">
+                        <tr>
+                            <td>Position:</td>
+                            <td>{job_role}</td>
+                        </tr>
+                        <tr>
+                            <td>Compensation:</td>
+                            <td>{compensation}</td>
+                        </tr>
+                        <tr>
+                            <td>Joining Date:</td>
+                            <td>{joining_date}</td>
+                        </tr>
+                        {f'''<tr>
+                            <td>Interview Score:</td>
+                            <td>{total_score}/40 - Excellent Performance! 🌟</td>
+                        </tr>''' if total_score is not None else ''}
+                    </table>
+                    
+                    <p>This offer includes our comprehensive benefits package, including:</p>
+                    <ul>
+                        <li>Health and dental insurance</li>
+                        <li>Retirement benefits</li>
+                        <li>Paid time off</li>
+                        <li>Professional development opportunities</li>
+                        <li>Flexible work arrangements</li>
+                    </ul>
+                    
+                    <p><strong>To accept this offer, please:</strong></p>
+                    <ol>
+                        <li>Review the attached PDF offer letter thoroughly</li>
+                        <li>Sign the acceptance section of the PDF</li>
+                        <li>Reply to this email with your signed acceptance</li>
+                        <li>Confirm your availability for the joining date</li>
+                    </ol>
+                    
+                    <p>We would appreciate your response within <strong>7 days</strong> from the date of this email.</p>
+                    
+                    <p>Should you have any questions or require clarification, please don't hesitate to contact me at <a href="mailto:{hr_email}">{hr_email}</a>.</p>
+                    
+                    <p>We look forward to welcoming you to the {company_name} team!</p>
+                </div>
+                
+                <div class="signature">
+                    <p>Best regards,</p>
+                    <p><b>{hr_name}</b><br>
+                    Human Resources Department<br>
+                    {company_name}<br>
+                    <a href="mailto:{hr_email}">{hr_email}</a></p>
+                </div>
+                
+                <div class="footer">
+                    <p>This offer is subject to completion of background checks and verification of employment eligibility.</p>
+                    <p>© {datetime.now().year} {company_name}. All rights reserved.</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        # Create plain text version
+        plain_text = f"""
+        Dear {candidate_name},
+        
+        Congratulations! We are delighted to offer you the position of {job_role} at {company_name}.
+        
+        Position: {job_role}
+        Compensation: {compensation}
+        Joining Date: {joining_date}
+        Interview Score: {total_score}/40 - Excellent Performance!
+        
+        Please find attached the formal offer letter PDF with complete details.
+        
+        To accept this offer:
+        1. Review the attached PDF offer letter thoroughly
+        2. Sign the acceptance section of the PDF
+        3. Reply to this email with your signed acceptance
+        4. Confirm your availability for the joining date
+        
+        Please respond within 7 days.
+        
+        For questions, contact {hr_name} at {hr_email}.
+        
+        Best regards,
+        {hr_name}
+        Human Resources Department
+        {company_name}
+        """
+        
+        # Send email with PDF attachment
+        try:
+            # Get OAuth manager and Gmail service
+            oauth_manager = EmailService.get_oauth_manager()
+            creds = oauth_manager.get_credentials()
+            service = build('gmail', 'v1', credentials=creds)
+            
+            # Prepare attachments
+            attachments = []
+            if pdf_path and os.path.exists(pdf_path):
+                attachments.append(pdf_path)
+                print(f"📎 PDF attachment ready: {pdf_path}")
+            else:
+                print("⚠️ Warning: PDF generation failed, sending email without attachment")
+            
+            # Create message with attachments
+            subject = f"🎉 Job Offer: {job_role} Position at {company_name}"
+            
+            message = EmailService.create_message_with_attachments(
+                sender="me",
+                to=candidate_email,
+                subject=subject,
+                message_text=plain_text,
+                html_content=html_content,
+                file_paths=attachments
+            )
+            
+            # Send the message
+            print("📤 Sending email with PDF attachment...")
+            EmailService.send_message(service, "me", message)
+            
+            # Clean up temporary PDF file
+            if pdf_path and os.path.exists(pdf_path):
+                try:
+                    os.unlink(pdf_path)
+                    print("🗑️ Temporary PDF file cleaned up")
+                except Exception as pdf_e:
+                    print(f"Warning: Could not delete temporary PDF file: {pdf_e}")
+            
+            print(f"✅ Offer letter with PDF sent to {candidate_name} at {candidate_email}")
+            return True
+            
+        except Exception as email_error:
+            print(f"❌ Failed to send email with attachment: {email_error}")
+            # Fallback to simple email without attachment
+            print("🔄 Attempting fallback: sending email without PDF attachment...")
+            
+            success = send_email(
+                to_emails=[candidate_email],
+                subject=f"🎉 Job Offer: {job_role} Position at {company_name}",
+                html_content=html_content
+            )
+            
+            if success:
+                print(f"✅ Fallback successful: Offer letter sent to {candidate_name} (without PDF)")
+            else:
+                print(f"❌ Fallback failed: Could not send offer letter to {candidate_name}")
+                
+            return success
+        
+    except Exception as e:
+        print(f"❌ Error sending offer letter to {candidate_name}: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
