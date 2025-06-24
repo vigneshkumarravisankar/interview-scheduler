@@ -15,6 +15,10 @@ from app.agents.crew_agent_system import get_agent_system
 from app.agents.langgraph_agent import get_langgraph_agent
 from app.agents.feedback_agent_system import get_feedback_agent_system
 from app.agents.stackrank_agent_system import get_stackrank_agent_system
+from app.agents.job_creation_agent_system import get_job_creation_agent_system
+from app.agents.resume_processing_agent_system import get_resume_processing_agent_system
+from app.agents.shortlist_scheduler_agent_system import get_shortlist_scheduler_agent_system
+from app.agents.rescheduler_agent_system import get_rescheduler_agent_system
 
 # Create router
 router = APIRouter(
@@ -140,6 +144,18 @@ async def agent_query(sid, data):
         loop = asyncio.get_event_loop()
         
         def process_query():
+            # Check if this is a job creation query
+            job_creation_keywords = ["create job", "add job", "new job", "post job", "job posting", "create a job"]
+            
+            # Check if this is a resume processing query
+            resume_processing_keywords = ["process resumes", "process candidates", "analyze resumes", "evaluate candidates", "screen candidates", "resume processing"]
+            
+            # Check if this is a shortlisting/scheduling query
+            shortlist_keywords = ["shortlist", "schedule interviews", "schedule candidates", "select top", "shortlist candidates", "interview scheduling"]
+            
+            # Check if this is a rescheduling query
+            reschedule_keywords = ["reschedule", "change interview time", "postpone interview", "reschedule interview", "move interview"]
+            
             # Check if this is a feedback-related query
             feedback_keywords = ["update feedback", "feedback for", "update the feedback", "rating", "selected for next round", "interview feedback"]
             
@@ -151,7 +167,24 @@ async def agent_query(sid, data):
                 "rank candidates", "select top", "hire candidates", "top candidate"
             ]
             
-            if any(keyword in query.lower() for keyword in feedback_keywords):
+            # Route to appropriate specialized agent system
+            if any(keyword in query.lower() for keyword in job_creation_keywords):
+                # Route to job creation agent system
+                job_system = get_job_creation_agent_system()
+                return job_system.process_job_query(query, session_id)
+            elif any(keyword in query.lower() for keyword in resume_processing_keywords):
+                # Route to resume processing agent system
+                resume_system = get_resume_processing_agent_system()
+                return resume_system.process_resume_query(query, session_id)
+            elif any(keyword in query.lower() for keyword in shortlist_keywords):
+                # Route to shortlist and scheduler agent system
+                shortlist_system = get_shortlist_scheduler_agent_system()
+                return shortlist_system.process_shortlist_query(query, session_id)
+            elif any(keyword in query.lower() for keyword in reschedule_keywords):
+                # Route to rescheduler agent system
+                reschedule_system = get_rescheduler_agent_system()
+                return reschedule_system.process_reschedule_query(query, session_id)
+            elif any(keyword in query.lower() for keyword in feedback_keywords):
                 # Route to specialized feedback agent system
                 feedback_system = get_feedback_agent_system()
                 return feedback_system.process_feedback_query(query, session_id)
@@ -169,7 +202,7 @@ async def agent_query(sid, data):
                 candidate_data = data.get('candidate_data', None)
                 return agent_system.process_query(query, job_data, candidate_data)
             else:
-                # Default to CrewAI scheduling system
+                # Default to CrewAI system for backward compatibility
                 return agent_system.process_query(query, session_id)
         
         # Run in executor to not block the event loop
