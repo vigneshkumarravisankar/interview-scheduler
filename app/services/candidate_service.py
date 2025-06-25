@@ -8,7 +8,7 @@ from datetime import datetime
 import json
 
 # Import necessary modules
-from app.database.firebase_db import FirestoreDB
+from app.database.chroma_db import FirestoreDB, ChromaVectorDB
 from app.schemas.candidate_schema import CandidateCreate, CandidateResponse, CandidateUpdate, PreviousCompany
 from app.utils.gcloud_storage import list_resumes_for_job, download_resume, delete_temp_file, get_resume_url
 from app.utils.resume_parser import extract_text_from_pdf, extract_candidate_data_with_llm, calculate_fit_score

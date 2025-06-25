@@ -5,7 +5,7 @@ This module provides tools for agents to query Firebase database context
 import logging
 from typing import Dict, Any, List, Optional
 from crewai.tools import BaseTool
-from app.database.firebase_db import FirestoreDB
+from app.database.chroma_db import FirestoreDB, ChromaVectorDB
 from app.services.interview_core_service import InterviewCoreService
 from app.services.job_service import JobService
 from app.services.candidate_service import CandidateService

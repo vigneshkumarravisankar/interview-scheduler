@@ -9,7 +9,7 @@ from firebase_admin import firestore
 from app.schemas.chatbot_schema import ChatRequest, ChatResponse
 from app.services.chatbot_service import ChatbotService
 from app.services.chatbot_service_enhanced import ChatbotServiceEnhanced
-from app.database.firebase_db import FirestoreDB
+from app.database.chroma_db import FirestoreDB, ChromaVectorDB
 
 
 router = APIRouter(

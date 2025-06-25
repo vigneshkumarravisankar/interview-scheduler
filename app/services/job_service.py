@@ -1,8 +1,8 @@
 import uuid
 from typing import Dict, Any, List, Optional
-from app.database.firebase_db import FirestoreDB
+from app.database.chroma_db import FirestoreDB, ChromaVectorDB
 
-# Use FirestoreDB directly
+# Use ChromaDB with compatibility layer
 DB = FirestoreDB
 from app.schemas.job_schema import JobPostingCreate, JobPostingResponse
 

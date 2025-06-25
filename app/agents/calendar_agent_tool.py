@@ -15,7 +15,7 @@ from app.services.interview_schedule_service import InterviewScheduleService
 from app.services.interview_reschedule_service import InterviewRescheduleService
 from app.services.candidate_service import CandidateService
 from app.services.job_service import JobService
-from app.database.firebase_db import FirestoreDB
+from app.database.chroma_db import FirestoreDB, ChromaVectorDB
 from app.utils.email_notification import send_interview_notification
 
 # Set up logging

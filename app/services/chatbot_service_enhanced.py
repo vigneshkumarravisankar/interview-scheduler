@@ -16,7 +16,7 @@ from langchain.schema import SystemMessage, HumanMessage, AIMessage
 import openai
 from fastapi import HTTPException
 
-from app.database.firebase_db import FirestoreDB
+from app.database.chroma_db import FirestoreDB, ChromaVectorDB
 from app.services.job_service import JobService
 from app.services.candidate_service import CandidateService, extract_resume_data
 from app.services.interview_service import InterviewService

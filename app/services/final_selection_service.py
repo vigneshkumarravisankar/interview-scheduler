@@ -5,7 +5,7 @@ import uuid
 from typing import Dict, Any, List, Optional, Tuple
 from fastapi import BackgroundTasks
 
-from app.database.firebase_db import FirestoreDB
+from app.database.chroma_db import ChromaVectorDB
 from app.services.interview_core_service import InterviewCoreService
 from app.services.candidate_service import CandidateService
 from app.services.job_service import JobService
@@ -35,7 +35,7 @@ class FinalSelectionService:
                 candidate_data['id'] = str(uuid.uuid4())
             
             # Add the document to the collection
-            doc_id = FirestoreDB.create_document(
+            doc_id = ChromaVectorDB.create_document(
                 FinalSelectionService.COLLECTION_NAME,
                 candidate_data
             )
@@ -57,7 +57,7 @@ class FinalSelectionService:
         Returns:
             Final candidate data or None if not found
         """
-        return FirestoreDB.get_document(FinalSelectionService.COLLECTION_NAME, candidate_id)
+        return ChromaVectorDB.get_document(FinalSelectionService.COLLECTION_NAME, candidate_id)
     
     @staticmethod
     def get_all_final_candidates() -> List[Dict[str, Any]]:
@@ -67,7 +67,7 @@ class FinalSelectionService:
         Returns:
             List of all final candidates
         """
-        return FirestoreDB.get_all_documents(FinalSelectionService.COLLECTION_NAME)
+        return ChromaVectorDB.get_all_documents(FinalSelectionService.COLLECTION_NAME)
     
     @staticmethod
     def get_final_candidates_by_job_id(job_id: str) -> List[Dict[str, Any]]:
@@ -369,7 +369,7 @@ class FinalSelectionService:
                     print(f"Found existing offer for candidate {candidate_data.get('name')}, updating with compensation")
                     
                     # Update existing record with compensation and HR info
-                    FirestoreDB.update_document(
+                    ChromaVectorDB.update_document(
                         FinalSelectionService.COLLECTION_NAME,
                         offer.get('id'),
                         {

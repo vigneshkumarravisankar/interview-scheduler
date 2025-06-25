@@ -28,7 +28,7 @@ import openai
 from app.services.candidate_service import CandidateService
 from app.services.job_service import JobService
 from app.services.interview_core_service import InterviewCoreService
-from app.database.firebase_db import FirestoreDB
+from app.database.chroma_db import FirestoreDB, ChromaVectorDB
 from app.utils.calendar_service import create_calendar_event
 from app.utils.email_notification import send_interview_notification
 

@@ -222,7 +222,7 @@ class InterviewService:
                 return False
             
             # Get candidate details from candidates_data collection
-            from app.database.firebase_db import FirestoreDB
+            from app.database.chroma_db import FirestoreDB, ChromaVectorDB
             candidate_id = interview_candidate.get("candidate_id", "")
             if not candidate_id:
                 print(f"No candidate ID found in interview record {interview_id}")

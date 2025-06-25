@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG Query Interface - AI Database Search</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .query-result {
+            animation: fadeInUp 0.5s ease-out;
+        }
+        
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .spell-correction {
+            background: linear-gradient(135deg, #ffeaa7 0%, #fab1a0 100%);
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="ragApp()">
+    <div class="container mx-auto px-4 py-8 max-w-6xl">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-800 mb-4">
+                <i class="fas fa-search text-blue-600 mr-3"></i>
+                RAG Database Search
+            </h1>
+            <p class="text-lg text-gray-600 max-w-3xl mx-auto">
+                Ask questions about jobs, candidates, interviews, and more. Our AI will search through the database 
+                and provide intelligent responses with automatic spell checking.
+            </p>
+        </div>
+
+        <!-- Search Interface -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Main Query Panel -->
+            <div class="lg:col-span-2">
+                <div class="bg-white rounded-xl shadow-lg p-6">
+                    <!-- Query Input -->
+                    <div class="mb-6">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            <i class="fas fa-question-circle text-blue-600 mr-1"></i>
+                            Ask a Question
+                        </label>
+                        <div class="relative">
+                            <textarea 
+                                x-model="query" 
+                                @keydown.ctrl.enter="performSearch()"
+                                placeholder="Example: Show me Python developers with 3+ years experience..."
+                                class="w-full h-24 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                                :disabled="isLoading"></textarea>
+                            <div class="absolute bottom-2 right-2 text-xs text-gray-400">
+                                Ctrl+Enter to search
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Search Options -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Collection</label>
+                            <select x-model="selectedCollection" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">All Collections</option>
+                                <template x-for="collection in availableCollections">
+                                    <option :value="collection.name" x-text="collection.name + ' (' + collection.document_count + ' docs)'"></option>
+                                </template>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Max Results</label>
+                            <select x-model="maxResults" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="5">5 results</option>
+                                <option value="10">10 results</option>
+                                <option value="20">20 results</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Similarity</label>
+                            <select x-model="similarityThreshold" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="0.1">Low (0.1)</option>
+                                <option value="0.3">Medium (0.3)</option>
+                                <option value="0.5">High (0.5)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Spell Check Toggle -->
+                    <div class="flex items-center mb-6">
+                        <input type="checkbox" x-model="enableSpellCheck" id="spellCheck" class="mr-2">
+                        <label for="spellCheck" class="text-sm text-gray-700">
+                            <i class="fas fa-spell-check text-green-600 mr-1"></i>
+                            Enable automatic spell checking
+                        </label>
+                    </div>
+
+                    <!-- Search Button -->
+                    <button 
+                        @click="performSearch()" 
+                        :disabled="isLoading || !query.trim()"
+                        class="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white py-3 px-6 rounded-lg font-medium transition-colors flex items-center justify-center">
+                        <span x-show="!isLoading" class="flex items-center">
+                            <i class="fas fa-search mr-2"></i>
+                            Search Database
+                        </span>
+                        <span x-show="isLoading" class="flex items-center">
+                            <div class="loading-spinner mr-2"></div>
+                            Searching...
+                        </span>
+                    </button>
+                </div>
+
+                <!-- Results Panel -->
+                <div x-show="searchResults" class="mt-6 bg-white rounded-xl shadow-lg p-6 query-result">
+                    <!-- Spell Corrections -->
+                    <div x-show="searchResults && searchResults.spell_corrections && searchResults.spell_corrections.length > 0" 
+                         class="spell-correction rounded-lg p-4 mb-6">
+                        <h3 class="text-sm font-medium text-gray-800 mb-2">
+                            <i class="fas fa-spell-check text-orange-600 mr-1"></i>
+                            Spell Corrections Applied
+                        </h3>
+                        <div class="flex flex-wrap gap-2">
+                            <template x-for="correction in searchResults.spell_corrections">
+                                <span class="bg-white px-2 py-1 rounded text-xs">
+                                    <span class="line-through text-red-600" x-text="correction.original"></span>
+                                    <i class="fas fa-arrow-right mx-1 text-gray-400"></i>
+                                    <span class="text-green-600 font-medium" x-text="correction.corrected"></span>
+                                </span>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- AI Response -->
+                    <div class="mb-6">
+                        <h3 class="text-lg font-semibold text-gray-800 mb-3">
+                            <i class="fas fa-robot text-blue-600 mr-2"></i>
+                            AI Response
+                        </h3>
+                        <div class="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-r-lg">
+                            <p x-html="formatAIResponse(searchResults.response)" class="text-gray-800 leading-relaxed"></p>
+                        </div>
+                    </div>
+
+                    <!-- Query Info -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 text-sm">
+                        <div class="text-center p-3 bg-gray-50 rounded-lg">
+                            <div class="font-semibold text-gray-800" x-text="searchResults.relevant_documents.length"></div>
+                            <div class="text-gray-600">Results Found</div>
+                        </div>
+                        <div class="text-center p-3 bg-gray-50 rounded-lg">
+                            <div class="font-semibold text-gray-800" x-text="(searchResults.confidence * 100).toFixed(1) + '%'"></div>
+                            <div class="text-gray-600">Confidence</div>
+                        </div>
+                        <div class="text-center p-3 bg-gray-50 rounded-lg">
+                            <div class="font-semibold text-gray-800" x-text="searchResults.processing_time_ms + 'ms'"></div>
+                            <div class="text-gray-600">Response Time</div>
+                        </div>
+                        <div class="text-center p-3 bg-gray-50 rounded-lg">
+                            <div class="font-semibold text-gray-800" x-text="searchResults.collection_used"></div>
+                            <div class="text-gray-600">Collection</div>
+                        </div>
+                    </div>
+
+                    <!-- Detailed Results -->
+                    <div x-show="searchResults.relevant_documents.length > 0">
+                        <h3 class="text-lg font-semibold text-gray-800 mb-3">
+                            <i class="fas fa-list text-green-600 mr-2"></i>
+                            Detailed Results
+                        </h3>
+                        <div class="space-y-4">
+                            <template x-for="(doc, index) in searchResults.relevant_documents.slice(0, 5)">
+                                <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                                    <div class="flex items-start justify-between mb-2">
+                                        <h4 class="font-medium text-gray-800">
+                                            <span x-text="getDocumentTitle(doc, index)"></span>
+                                        </h4>
+                                        <div class="flex items-center text-sm text-gray-500">
+                                            <i class="fas fa-chart-line mr-1"></i>
+                                            <span x-text="((doc._similarity_score || 0) * 100).toFixed(1) + '%'"></span>
+                                        </div>
+                                    </div>
+                                    <div class="text-sm text-gray-600 mb-2" x-html="getDocumentSummary(doc)"></div>
+                                    <div class="flex items-center text-xs text-gray-400">
+                                        <i class="fas fa-database mr-1"></i>
+                                        <span x-text="doc._collection || 'Unknown'"></span>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="space-y-6">
+                <!-- Quick Queries -->
+                <div class="bg-white rounded-lg shadow p-4">
+                    <h3 class="font-semibold text-gray-800 mb-3">
+                        <i class="fas fa-lightning-bolt text-yellow-500 mr-2"></i>
+                        Quick Queries
+                    </h3>
+                    <div class="space-y-2">
+                        <button @click="setQuery('Show me all Python developers')" 
+                                class="w-full text-left px-3 py-2 text-sm bg-gray-50 hover:bg-gray-100 rounded transition-colors">
+                            <i class="fab fa-python mr-2 text-blue-600"></i>
+                            Python Developers
+                        </button>
+                        <button @click="setQuery('List all software engineer jobs')" 
+                                class="w-full text-left px-3 py-2 text-sm bg-gray-50 hover:bg-gray-100 rounded transition-colors">
+                            <i class="fas fa-briefcase mr-2 text-green-600"></i>
+                            Software Engineer Jobs
+                        </button>
+                        <button @click="setQuery('Show candidates with React experience')" 
+                                class="w-full text-left px-3 py-2 text-sm bg-gray-50 hover:bg-gray-100 rounded transition-colors">
+                            <i class="fab fa-react mr-2 text-cyan-600"></i>
+                            React Candidates
+                        </button>
+                        <button @click="setQuery('Find recent interviews')" 
+                                class="w-full text-left px-3 py-2 text-sm bg-gray-50 hover:bg-gray-100 rounded transition-colors">
+                            <i class="fas fa-calendar mr-2 text-purple-600"></i>
+                            Recent Interviews
+                        </button>
+                        <button @click="setQuery('How many candidates are there?')" 
+                                class="w-full text-left px-3 py-2 text-sm bg-gray-50 hover:bg-gray-100 rounded transition-colors">
+                            <i class="fas fa-users mr-2 text-orange-600"></i>
+                            Candidate Count
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Collections Info -->
+                <div class="bg-white rounded-lg shadow p-4">
+                    <h3 class="font-semibold text-gray-800 mb-3">
+                        <i class="fas fa-database text-blue-500 mr-2"></i>
+                        Available Collections
+                    </h3>
+                    <div class="space-y-2 text-sm">
+                        <template x-for="collection in availableCollections">
+                            <div class="flex justify-between items-center py-1">
+                                <span class="text-gray-700" x-text="collection.name"></span>
+                                <span class="text-gray-500" x-text="collection.document_count + ' docs'"></span>
+                            </div>
+                        </template>
+                        <div x-show="availableCollections.length === 0" class="text-gray-500 italic">
+                            Loading collections...
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Help & Tips -->
+                <div class="bg-white rounded-lg shadow p-4">
+                    <h3 class="font-semibold text-gray-800 mb-3">
+                        <i class="fas fa-lightbulb text-yellow-500 mr-2"></i>
+                        Search Tips
+                    </h3>
+                    <div class="space-y-2 text-sm text-gray-600">
+                        <div>• Use natural language questions</div>
+                        <div>• Be specific about requirements</div>
+                        <div>• Try keywords like "show", "find", "list"</div>
+                        <div>• Ask about counts with "how many"</div>
+                        <div>• Filter with "with experience in..."</div>
+                    </div>
+                </div>
+
+                <!-- Example Queries -->
+                <div class="bg-white rounded-lg shadow p-4">
+                    <h3 class="font-semibold text-gray-800 mb-3">
+                        <i class="fas fa-question-circle text-indigo-500 mr-2"></i>
+                        Example Queries
+                    </h3>
+                    <div class="space-y-2 text-xs">
+                        <div class="bg-indigo-50 p-2 rounded text-indigo-700">
+                            "Find JavaScript developers in New York"
+                        </div>
+                        <div class="bg-green-50 p-2 rounded text-green-700">
+                            "Show me job postings requiring 5+ years experience"
+                        </div>
+                        <div class="bg-purple-50 p-2 rounded text-purple-700">
+                            "List candidates who had interviews this month"
+                        </div>
+                        <div class="bg-orange-50 p-2 rounded text-orange-700">
+                            "How many remote developer positions?"
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function ragApp() {
+            return {
+                query: '',
+                selectedCollection: '',
+                maxResults: 10,
+                similarityThreshold: 0.3,
+                enableSpellCheck: true,
+                isLoading: false,
+                searchResults: null,
+                availableCollections: [],
+
+                async init() {
+                    await this.loadCollections();
+                },
+
+                async loadCollections() {
+                    try {
+                        const response = await fetch('/rag/collections');
+                        if (response.ok) {
+                            const data = await response.json();
+                            this.availableCollections = data.collections || [];
+                        }
+                    } catch (error) {
+                        console.error('Error loading collections:', error);
+                    }
+                },
+
+                setQuery(queryText) {
+                    this.query = queryText;
+                },
+
+                async performSearch() {
+                    if (!this.query.trim()) return;
+
+                    this.isLoading = true;
+                    
+                    try {
+                        const response = await fetch('/rag/query', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                query: this.query,
+                                collection: this.selectedCollection || null,
+                                n_results: parseInt(this.maxResults),
+                                enable_spell_check: this.enableSpellCheck,
+                                similarity_threshold: parseFloat(this.similarityThreshold)
+                            })
+                        });
+
+                        if (response.ok) {
+                            this.searchResults = await response.json();
+                        } else {
+                            const error = await response.json();
+                            alert(`Search failed: ${error.detail}`);
+                        }
+                    } catch (error) {
+                        console.error('Search error:', error);
+                        alert('Network error occurred during search');
+                    } finally {
+                        this.isLoading = false;
+                    }
+                },
+
+                formatAIResponse(response) {
+                    return response
+                        .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>')
+                        .replace(/\*(.*?)\*/g, '<em class="italic">$1</em>')
+                        .replace(/\n/g, '<br>');
+                },
+
+                getDocumentTitle(doc, index) {
+                    return doc.job_role_name || 
+                           doc.name || 
+                           doc.title || 
+                           `Result ${index + 1}`;
+                },
+
+                getDocumentSummary(doc) {
+                    let summary = '';
+                    
+                    if (doc.job_role_name) {
+                        summary += `<strong>Position:</strong> ${doc.job_role_name}<br>`;
+                        if (doc.company_name) summary += `<strong>Company:</strong> ${doc.company_name}<br>`;
+                        if (doc.location) summary += `<strong>Location:</strong> ${doc.location}<br>`;
+                        if (doc.required_experience) summary += `<strong>Experience:</strong> ${doc.required_experience}<br>`;
+                    } else if (doc.name && doc.email) {
+                        summary += `<strong>Name:</strong> ${doc.name}<br>`;
+                        summary += `<strong>Email:</strong> ${doc.email}<br>`;
+                        if (doc.total_experience) summary += `<strong>Experience:</strong> ${doc.total_experience}<br>`;
+                        if (doc.technical_skills && Array.isArray(doc.technical_skills)) {
+                            summary += `<strong>Skills:</strong> ${doc.technical_skills.slice(0, 3).join(', ')}<br>`;
+                        }
+                    } else {
+                        // Generic summary
+                        const fields = ['description', 'job_description', 'summary', 'content'];
+                        for (const field of fields) {
+                            if (doc[field]) {
+                                const text = doc[field].length > 100 ? doc[field].substring(0, 100) + '...' : doc[field];
+                                summary += text + '<br>';
+                                break;
+                            }
+                        }
+                    }
+                    
+                    return summary || 'No summary available';
+                }
+            }
+        }
+    </script>
+</body>
+</html>

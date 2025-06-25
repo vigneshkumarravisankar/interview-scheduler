@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from firebase_admin import get_app
 import socketio
 
-from app.api import job_routes, calendar_routes, auth_routes, candidate_routes, interview_routes, response_routes, final_selection_routes, chatbot_routes, advanced_chatbot_routes, agent_routes, shortlist_routes, reschedule_routes, langgraph_routes, resume_routes, integration_routes, specialized_routes, firebase_query_routes
+from app.api import job_routes, calendar_routes, auth_routes, candidate_routes, interview_routes, response_routes, final_selection_routes, chatbot_routes, advanced_chatbot_routes, agent_routes, shortlist_routes, reschedule_routes, langgraph_routes, resume_routes, integration_routes, specialized_routes, firebase_query_routes, rag_routes
 from app.agents.interview_agent import InterviewAgentSystem, create_interview_crew
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -60,6 +60,7 @@ app.include_router(resume_routes.router)
 app.include_router(integration_routes.router)
 app.include_router(specialized_routes.router)
 app.include_router(firebase_query_routes.router)
+app.include_router(rag_routes.router)
 
 # Mount the Socket.IO app
 app.mount("/socket.io", agent_routes.socket_app)
@@ -93,6 +94,11 @@ def agent_interface():
 def firebase_query_interface():
     """Serve the Firebase NLP query interface page"""
     return FileResponse("app/static/firebase_query_interface.html")
+
+@app.get("/rag")
+def rag_demo():
+    """Serve the RAG query interface page"""
+    return FileResponse("app/static/rag_demo.html")
 
 
 @app.get("/health")

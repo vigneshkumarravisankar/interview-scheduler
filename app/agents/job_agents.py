@@ -20,7 +20,7 @@ from langchain.chat_models import ChatOpenAI
 # Service imports
 from app.services.job_service import JobService
 from app.services.candidate_service import extract_resume_data
-from app.database.firebase_db import FirestoreDB
+from app.database.chroma_db import FirestoreDB, ChromaVectorDB
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)

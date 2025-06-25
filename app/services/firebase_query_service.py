@@ -12,7 +12,7 @@ from datetime import datetime
 import openai
 from fastapi import HTTPException
 
-from app.database.firebase_db import FirestoreDB, db
+from app.database.chroma_db import FirestoreDB, ChromaVectorDB, db
 from app.services.job_service import JobService
 from app.services.candidate_service import CandidateService
 from app.services.interview_service import InterviewService

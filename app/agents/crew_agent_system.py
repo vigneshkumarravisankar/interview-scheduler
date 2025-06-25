@@ -27,7 +27,7 @@ from app.schemas.job_schema import JobPostingCreate, JobPostingResponse
 from app.schemas.candidate_schema import CandidateResponse
 from app.agents.firebase_context_tool import GetInterviewCandidatesTool, GetJobsTool, GetCandidatesTool
 from app.agents.calendar_agent_tool import ScheduleInterviewTool, RescheduleInterviewTool, GetCalendarAvailabilityTool
-from app.database.firebase_db import FirestoreDB
+from app.database.chroma_db import FirestoreDB, ChromaVectorDB
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -180,7 +180,7 @@ class CreateJobPostingTool(BaseTool):
             job_details = job_details['description']
         elif not isinstance(job_details, str):
             return "Error: Invalid job details format. Please provide either a string or a dictionary with a 'description' field."
-        """Create a job posting from the provided details"""
+        
         try:
             # Use the LLM to format job details properly
             logger.info("Using LLM to format job details")
@@ -198,18 +198,21 @@ class CreateJobPostingTool(BaseTool):
             # Save to database  
             result = JobService.create_job_posting(job_posting)
             
+            # Convert result to dict to avoid Pydantic serialization issues
+            result_dict = result.dict() if hasattr(result, 'dict') else result.__dict__
+            
             # Format response
             response = f"""
- Job posting created successfully!
+Job posting created successfully!
 
-Job ID: {result.job_id}
-Role: {result.job_role_name}
-Experience Required: {result.years_of_experience_needed}
-Location: {result.location}
-Status: {result.status}
+Job ID: {result_dict.get('job_id', 'N/A')}
+Role: {result_dict.get('job_role_name', 'N/A')}
+Experience Required: {result_dict.get('years_of_experience_needed', 'N/A')}
+Location: {result_dict.get('location', 'N/A')}
+Status: {result_dict.get('status', 'N/A')}
 
 Description:
-{result.job_description}
+{result_dict.get('job_description', 'N/A')}
 """
             return response
         except Exception as e:
@@ -353,20 +356,29 @@ class ProcessResumesTool(BaseTool):
             response += f"Job: {job_role_name}\n\n"
             response += "Candidates ranked by AI fit score:\n\n"
             
-            # Sort candidates by fit score
+            # Sort candidates by fit score - convert to dict to avoid Pydantic issues
+            candidate_dicts = []
+            for candidate in candidates:
+                if hasattr(candidate, 'dict'):
+                    candidate_dicts.append(candidate.dict())
+                elif hasattr(candidate, '__dict__'):
+                    candidate_dicts.append(candidate.__dict__)
+                else:
+                    candidate_dicts.append(candidate)
+            
             sorted_candidates = sorted(
-                candidates,
-                key=lambda c: int(c.ai_fit_score) if c.ai_fit_score.isdigit() else 0,
+                candidate_dicts,
+                key=lambda c: int(c.get('ai_fit_score', 0)) if str(c.get('ai_fit_score', 0)).isdigit() else 0,
                 reverse=True
             )
             
             for i, candidate in enumerate(sorted_candidates):
-                response += f"#{i+1}: {candidate.name}\n"
-                response += f"   Email: {candidate.email}\n"
-                response += f"   Phone: {candidate.phone_no}\n"
-                response += f"   AI Fit Score: {candidate.ai_fit_score}/100\n"
-                response += f"   Experience: {candidate.total_experience_in_years}\n"
-                response += f"   Skills: {candidate.technical_skills}\n\n"
+                response += f"#{i+1}: {candidate.get('name', 'Unknown')}\n"
+                response += f"   Email: {candidate.get('email', 'N/A')}\n"
+                response += f"   Phone: {candidate.get('phone_no', 'N/A')}\n"
+                response += f"   AI Fit Score: {candidate.get('ai_fit_score', 0)}/100\n"
+                response += f"   Experience: {candidate.get('total_experience_in_years', 'N/A')}\n"
+                response += f"   Skills: {candidate.get('technical_skills', 'N/A')}\n\n"
             
             return response
             
@@ -742,7 +754,7 @@ class CrewAgentSystem:
     
     def process_query(self, query: str, session_id: str) -> Dict[str, Any]:
         """
-        Process a query using the agent system
+        Process a query using RAG-enhanced agent routing and context-aware actions
         
         Args:
             query: The user's query text
@@ -751,6 +763,435 @@ class CrewAgentSystem:
         Returns:
             Dictionary containing the response and thought process
         """
+        # Use RAG to understand query context and route to appropriate agent
+        rag_routing_info = self._rag_based_agent_routing(query)
+        
+        # Enhanced routing with RAG context
+        return self._process_with_rag_context(query, session_id, rag_routing_info)
+    
+    def _rag_based_agent_routing(self, query: str) -> Dict[str, Any]:
+        """
+        Use RAG to analyze query and determine best agent routing with context
+        
+        Args:
+            query: The user's query text
+            
+        Returns:
+            Dictionary with routing information and relevant context
+        """
+        try:
+            db = ChromaVectorDB()
+            routing_info = {
+                "primary_agent": None,
+                "confidence": 0,
+                "relevant_context": {},
+                "suggested_actions": [],
+                "supporting_data": {}
+            }
+            
+            # Search across different collections to understand query context
+            collections_to_search = [
+                ("jobs", "job-related queries and requirements"),
+                ("candidates_data", "candidate profiles and skills"),
+                ("interview_candidates", "interview scheduling and feedback"),
+                ("interviewers", "interviewer expertise and availability")
+            ]
+            
+            all_contexts = []
+            collection_relevance = {}
+            
+            for collection_name, description in collections_to_search:
+                try:
+                    # Perform RAG search in each collection
+                    rag_results = db.rag_search(
+                        collection_name=collection_name,
+                        query=query,
+                        n_results=3
+                    )
+                    
+                    if rag_results['document_count'] > 0:
+                        collection_relevance[collection_name] = {
+                            'document_count': rag_results['document_count'],
+                            'context': rag_results['context'],
+                            'relevant_documents': rag_results['relevant_documents']
+                        }
+                        all_contexts.append(f"From {collection_name}: {rag_results['context'][:200]}...")
+                
+                except Exception as e:
+                    logger.warning(f"RAG search failed for {collection_name}: {e}")
+            
+            # Analyze query intent using RAG context
+            routing_info = self._analyze_query_intent_with_rag(query, collection_relevance)
+            
+            return routing_info
+            
+        except Exception as e:
+            logger.error(f"RAG-based routing failed: {e}")
+            # Fallback to traditional routing
+            return {
+                "primary_agent": self.get_primary_agent_for_query(query),
+                "confidence": 0.5,
+                "relevant_context": {},
+                "suggested_actions": [],
+                "supporting_data": {},
+                "fallback_used": True
+            }
+    
+    def _analyze_query_intent_with_rag(self, query: str, collection_relevance: Dict) -> Dict[str, Any]:
+        """
+        Analyze query intent using RAG context to determine optimal agent routing
+        """
+        query_lower = query.lower()
+        routing_info = {
+            "primary_agent": None,
+            "confidence": 0,
+            "relevant_context": collection_relevance,
+            "suggested_actions": [],
+            "supporting_data": {}
+        }
+        
+        # Determine primary intent based on RAG context and keywords
+        intent_scores = {
+            "job_management": 0,
+            "candidate_screening": 0,
+            "interview_planning": 0,
+            "scheduling": 0
+        }
+        
+        # Score based on collection relevance
+        if "jobs" in collection_relevance and collection_relevance["jobs"]["document_count"] > 0:
+            intent_scores["job_management"] += 2
+        if "candidates_data" in collection_relevance and collection_relevance["candidates_data"]["document_count"] > 0:
+            intent_scores["candidate_screening"] += 2
+        if "interview_candidates" in collection_relevance and collection_relevance["interview_candidates"]["document_count"] > 0:
+            intent_scores["interview_planning"] += 1
+            intent_scores["scheduling"] += 1
+        if "interviewers" in collection_relevance and collection_relevance["interviewers"]["document_count"] > 0:
+            intent_scores["scheduling"] += 1
+        
+        # Score based on keywords
+        job_keywords = ["job", "posting", "role", "position", "create", "requirement"]
+        candidate_keywords = ["candidate", "resume", "cv", "profile", "skill", "experience", "screen", "evaluate"]
+        interview_keywords = ["interview", "question", "assess", "evaluate", "feedback", "round"]
+        schedule_keywords = ["schedule", "time", "date", "calendar", "meeting", "reschedule", "availability"]
+        
+        for keyword in job_keywords:
+            if keyword in query_lower:
+                intent_scores["job_management"] += 1
+        
+        for keyword in candidate_keywords:
+            if keyword in query_lower:
+                intent_scores["candidate_screening"] += 1
+        
+        for keyword in interview_keywords:
+            if keyword in query_lower:
+                intent_scores["interview_planning"] += 1
+        
+        for keyword in schedule_keywords:
+            if keyword in query_lower:
+                intent_scores["scheduling"] += 1
+        
+        # Determine primary agent based on highest score
+        max_score = max(intent_scores.values())
+        if max_score > 0:
+            primary_intent = max(intent_scores, key=intent_scores.get)
+            routing_info["confidence"] = min(max_score / 5.0, 1.0)  # Normalize to 0-1
+            
+            # Map intent to agent
+            intent_to_agent = {
+                "job_management": self.job_analyzer,
+                "candidate_screening": self.candidate_screener,
+                "interview_planning": self.interview_planner,
+                "scheduling": self.scheduler
+            }
+            
+            routing_info["primary_agent"] = intent_to_agent[primary_intent]
+            
+            # Generate suggested actions based on context
+            routing_info["suggested_actions"] = self._generate_suggested_actions(
+                primary_intent, query, collection_relevance
+            )
+        else:
+            # Default to job analyzer if no clear intent
+            routing_info["primary_agent"] = self.job_analyzer
+            routing_info["confidence"] = 0.3
+        
+        return routing_info
+    
+    def _generate_suggested_actions(self, primary_intent: str, query: str, collection_relevance: Dict) -> List[str]:
+        """
+        Generate suggested actions based on RAG context and intent
+        """
+        actions = []
+        
+        if primary_intent == "job_management":
+            if "jobs" in collection_relevance and collection_relevance["jobs"]["document_count"] > 0:
+                actions.append("Analyze existing job postings for similar roles")
+                actions.append("Review job requirements and qualifications")
+            else:
+                actions.append("Create new job posting")
+            
+        elif primary_intent == "candidate_screening":
+            if "candidates_data" in collection_relevance and collection_relevance["candidates_data"]["document_count"] > 0:
+                actions.append("Review candidate profiles and fit scores")
+                actions.append("Compare candidates against job requirements")
+                actions.append("Generate candidate ranking and recommendations")
+            else:
+                actions.append("Process resumes for the specified role")
+            
+        elif primary_intent == "interview_planning":
+            if "interview_candidates" in collection_relevance:
+                actions.append("Review interview feedback and progress")
+                actions.append("Plan next interview rounds")
+            actions.append("Design interview questions and assessment criteria")
+            
+        elif primary_intent == "scheduling":
+            if "interview_candidates" in collection_relevance:
+                actions.append("Check current interview schedules")
+                actions.append("Identify scheduling conflicts")
+            if "interviewers" in collection_relevance:
+                actions.append("Match interviewers to candidate requirements")
+            actions.append("Schedule or reschedule interviews")
+        
+        return actions
+    
+    def _process_with_rag_context(self, query: str, session_id: str, rag_info: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process query using RAG context and enhanced agent routing
+        """
+        # Initialize or retrieve session context
+        if session_id not in self.sessions:
+            self.sessions[session_id] = {
+                "history": [],
+                "context": {}
+            }
+        
+        session = self.sessions[session_id]
+        
+        # Record the query in session history
+        session["history"].append({
+            "role": "user",
+            "content": query,
+            "timestamp": datetime.now().isoformat()
+        })
+        
+        # Create enhanced thoughts with RAG context
+        thoughts = []
+        
+        # Initial RAG analysis thought
+        rag_thought = {
+            "agent": "RAG System",
+            "thought": f"Analyzed query using RAG across {len(rag_info['relevant_context'])} collections. Primary agent: {rag_info['primary_agent'].role if rag_info['primary_agent'] else 'None'}, Confidence: {rag_info['confidence']:.2f}",
+            "timestamp": datetime.now().isoformat()
+        }
+        thoughts.append(rag_thought)
+        
+        # Add context-aware thoughts
+        if rag_info['relevant_context']:
+            for collection, context_info in rag_info['relevant_context'].items():
+                context_thought = {
+                    "agent": "RAG System",
+                    "thought": f"Found {context_info['document_count']} relevant documents in {collection} collection",
+                    "timestamp": datetime.now().isoformat()
+                }
+                thoughts.append(context_thought)
+        
+        # Agent routing thought
+        primary_agent = rag_info.get('primary_agent') or self.get_primary_agent_for_query(query)
+        routing_thought = {
+            "agent": "System",
+            "thought": f"Routing to {primary_agent.role} based on RAG analysis (confidence: {rag_info['confidence']:.2f})",
+            "timestamp": datetime.now().isoformat()
+        }
+        thoughts.append(routing_thought)
+        
+        # Create enhanced task with RAG context
+        rag_context_summary = self._create_rag_context_summary(rag_info['relevant_context'])
+        
+        task_description = f"""
+        Process the following query with RAG-enhanced context:
+        
+        USER QUERY: {query}
+        
+        RAG CONTEXT ANALYSIS:
+        {rag_context_summary}
+        
+        SUGGESTED ACTIONS BASED ON RAG:
+        {chr(10).join(['- ' + action for action in rag_info.get('suggested_actions', [])])}
+        
+        Based on this context and the RAG analysis, provide a comprehensive response that:
+        1. Leverages the relevant information found in the database
+        2. Addresses the specific user query
+        3. Takes appropriate actions based on the suggested actions
+        4. Provides concrete, actionable results
+        
+        Use the available tools to perform any necessary operations.
+        """
+        
+        task = Task(
+            description=task_description,
+            expected_output="A RAG-enhanced response that leverages database context to provide comprehensive assistance",
+            agent=primary_agent
+        )
+        
+        # Create a temporary crew for this enhanced task
+        temp_crew = Crew(
+            agents=[self.job_analyzer, self.candidate_screener, 
+                   self.interview_planner, self.scheduler],
+            tasks=[task],
+            verbose=True,
+            process=Process.sequential,
+            memory=True
+        )
+        
+        try:
+            # Record start of enhanced processing
+            execution_start_thought = {
+                "agent": primary_agent.role,
+                "thought": f"Beginning RAG-enhanced processing with context from {len(rag_info['relevant_context'])} collections",
+                "timestamp": datetime.now().isoformat()
+            }
+            thoughts.append(execution_start_thought)
+            
+            # Execute the crew's task with RAG context
+            crew_result = temp_crew.kickoff()
+            
+            # Convert CrewOutput to string to ensure it's JSON serializable
+            if hasattr(crew_result, 'raw'):
+                result = crew_result.raw
+            elif hasattr(crew_result, 'result'):
+                result = crew_result.result
+            else:
+                result = str(crew_result)
+            
+            # Add context-aware completion thoughts
+            if rag_info['suggested_actions']:
+                for action in rag_info['suggested_actions']:
+                    action_thought = {
+                        "agent": primary_agent.role,
+                        "thought": f"Considered action: {action}",
+                        "timestamp": datetime.now().isoformat()
+                    }
+                    thoughts.append(action_thought)
+            
+            # Final completion thought
+            completion_thought = {
+                "agent": primary_agent.role,
+                "thought": f"Completed RAG-enhanced analysis with {rag_info['confidence']:.2f} confidence",
+                "timestamp": datetime.now().isoformat()
+            }
+            thoughts.append(completion_thought)
+            
+            # Record the response in session history
+            session["history"].append({
+                "role": "assistant",
+                "content": result,
+                "timestamp": datetime.now().isoformat(),
+                "rag_context": rag_info
+            })
+            
+            return {
+                "response": result,
+                "thought_process": thoughts,
+                "primary_agent": primary_agent.role,
+                "session_id": session_id,
+                "rag_context": rag_info,
+                "confidence": rag_info['confidence']
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in RAG-enhanced processing: {e}")
+            error_thought = {
+                "agent": "System",
+                "thought": f"RAG-enhanced processing failed: {str(e)}. Falling back to standard processing.",
+                "timestamp": datetime.now().isoformat()
+            }
+            thoughts.append(error_thought)
+            
+            # Fallback to standard processing
+            return self._fallback_standard_processing(query, session_id, thoughts)
+    
+    def _create_rag_context_summary(self, relevant_context: Dict) -> str:
+        """
+        Create a summary of RAG context for task description
+        """
+        if not relevant_context:
+            return "No specific context found in database collections."
+        
+        summary_parts = []
+        for collection, context_info in relevant_context.items():
+            doc_count = context_info.get('document_count', 0)
+            if doc_count > 0:
+                summary_parts.append(f"- {collection.replace('_', ' ').title()}: {doc_count} relevant documents found")
+                
+                # Add preview of context
+                context_preview = context_info.get('context', '')[:150]
+                if context_preview:
+                    summary_parts.append(f"  Preview: {context_preview}...")
+        
+        return "\n".join(summary_parts) if summary_parts else "No relevant context found."
+    
+    def _fallback_standard_processing(self, query: str, session_id: str, existing_thoughts: List[Dict]) -> Dict[str, Any]:
+        """
+        Fallback to standard processing when RAG enhancement fails
+        """
+        fallback_thought = {
+            "agent": "System",
+            "thought": "Using fallback standard processing",
+            "timestamp": datetime.now().isoformat()
+        }
+        existing_thoughts.append(fallback_thought)
+        
+        # Use the existing standard processing logic
+        primary_agent = self.get_primary_agent_for_query(query)
+        
+        task = Task(
+            description=f"""
+            Process the following query:
+            
+            USER QUERY: {query}
+            
+            Provide a helpful response addressing the user's request.
+            """,
+            expected_output="A helpful response to the user's query",
+            agent=primary_agent
+        )
+        
+        temp_crew = Crew(
+            agents=[self.job_analyzer, self.candidate_screener, 
+                   self.interview_planner, self.scheduler],
+            tasks=[task],
+            verbose=True,
+            process=Process.sequential
+        )
+        
+        try:
+            crew_result = temp_crew.kickoff()
+            
+            if hasattr(crew_result, 'raw'):
+                result = crew_result.raw
+            elif hasattr(crew_result, 'result'):
+                result = crew_result.result
+            else:
+                result = str(crew_result)
+            
+            return {
+                "response": result,
+                "thought_process": existing_thoughts,
+                "primary_agent": primary_agent.role,
+                "session_id": session_id,
+                "fallback_used": True
+            }
+            
+        except Exception as e:
+            logger.error(f"Fallback processing also failed: {e}")
+            return {
+                "response": f"I apologize, but I encountered an error while processing your query: {str(e)}",
+                "thought_process": existing_thoughts,
+                "primary_agent": "System Error Handler",
+                "session_id": session_id,
+                "error": str(e)
+            }
         # Check if query is related to shortlisting candidates
         if any(phrase in query.lower() for phrase in ["shortlist", "schedule interviews", "schedule candidates", "select top"]):
             # Direct shortlisting

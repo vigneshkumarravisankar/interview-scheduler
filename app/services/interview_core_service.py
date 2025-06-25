@@ -3,7 +3,7 @@ Core interview candidate and interviewer management functionality
 """
 import uuid
 from typing import Dict, Any, List, Optional, Tuple
-from app.database.firebase_db import FirestoreDB
+from app.database.chroma_db import FirestoreDB, ChromaVectorDB
 
 
 class InterviewCoreService:

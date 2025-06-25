@@ -6,7 +6,7 @@ import string
 import uuid
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional
-from app.database.firebase_db import FirestoreDB
+from app.database.chroma_db import ChromaVectorDB
 from app.services.candidate_service import CandidateService
 from app.services.job_service import JobService
 from app.services.interview_core_service import InterviewCoreService
@@ -47,7 +47,7 @@ class InterviewShortlistService:
             
             # Try to get candidates using Firebase query directly for robustness
             try:
-                candidates = FirestoreDB.execute_query(
+                candidates = ChromaVectorDB.execute_query(
                     InterviewShortlistService.CANDIDATES_COLLECTION,
                     "job_id",
                     "==",
@@ -96,7 +96,7 @@ class InterviewShortlistService:
             
             # Check the interview service for existing interviews
             try:
-                existing_interviews = FirestoreDB.execute_query(
+                existing_interviews = ChromaVectorDB.execute_query(
                     InterviewShortlistService.INTERVIEW_CANDIDATES_COLLECTION,
                     "job_id",
                     "==",

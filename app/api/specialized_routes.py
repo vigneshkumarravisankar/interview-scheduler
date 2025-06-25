@@ -185,7 +185,7 @@ async def get_process_status(job_role_name: str):
     2. If interviews have been scheduled
     """
     try:
-        from app.database.firebase_db import FirestoreDB
+        from app.database.chroma_db import FirestoreDB, ChromaVectorDB
         from app.services.job_service import JobService
         
         # First find the job_id from the job_role_name

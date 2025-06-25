@@ -12,6 +12,9 @@ load_dotenv()
 # Import after loading environment variables
 from app.main import app
 
+# Import ChromaDB migration
+from firebase_to_chroma_migration import run_migration
+
 # Set default OpenAI API key if not in environment 
 if "OPENAI_API_KEY" not in os.environ:
     os.environ["OPENAI_API_KEY"] = "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"
@@ -43,6 +46,19 @@ if __name__ == "__main__":
     print(f"API documentation: http://localhost:{port}/docs")
     print(f"Agent interface: http://localhost:{port}/agent")
     print(f"Chatbot demo: http://localhost:{port}/chatbot")
+    print("="*80 + "\n")
+    
+    # Initialize ChromaDB and migrate data from Firebase
+    print("🔄 Initializing ChromaDB and migrating data...")
+    try:
+        run_migration()
+        print("✅ ChromaDB initialization and migration completed successfully!")
+    except Exception as e:
+        print(f"⚠️  Warning: ChromaDB migration failed: {e}")
+        print("🔄 Server will continue with ChromaDB (may have sample data)")
+    
+    print("\n" + "="*80)
+    print("🚀 STARTING SERVER WITH CHROMADB + RAG CAPABILITIES")
     print("="*80 + "\n")
     
     # Run the server

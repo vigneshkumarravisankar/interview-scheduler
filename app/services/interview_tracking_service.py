@@ -6,7 +6,7 @@ import string
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 
-from app.database.firebase_db import FirestoreDB
+from app.database.chroma_db import ChromaVectorDB
 from app.services.interview_core_service import InterviewCoreService
 
 
