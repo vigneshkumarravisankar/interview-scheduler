@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Multi-Contextual Chatbot Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .chat-message {
+            animation: fadeInUp 0.5s ease-out;
+        }
+        
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .typing-indicator {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background-color: #3b82f6;
+            animation: typing 1.4s infinite ease-in-out both;
+        }
+        
+        .typing-indicator:nth-child(1) { animation-delay: -0.32s; }
+        .typing-indicator:nth-child(2) { animation-delay: -0.16s; }
+        
+        @keyframes typing {
+            0%, 80%, 100% {
+                transform: scale(0);
+            }
+            40% {
+                transform: scale(1);
+            }
+        }
+        
+        .suggestion-chip {
+            transition: all 0.2s ease-in-out;
+        }
+        
+        .suggestion-chip:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="chatbotApp()">
+    <div class="container mx-auto px-4 py-8 max-w-6xl">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-800 mb-4">
+                <i class="fas fa-robot text-blue-600 mr-3"></i>
+                Advanced Multi-Contextual Chatbot
+            </h1>
+            <p class="text-lg text-gray-600 max-w-3xl mx-auto">
+                Experience our intelligent AI assistant with multi-contextual conversation support, 
+                specialized agent integration, and professional response handling for interview management.
+            </p>
+        </div>
+
+        <!-- Main Chat Interface -->
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <!-- Chat Area -->
+            <div class="lg:col-span-3">
+                <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+                    <!-- Chat Header -->
+                    <div class="bg-gradient-to-r from-blue-600 to-indigo-600 p-4">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h2 class="text-white text-xl font-semibold">
+                                    <i class="fas fa-comments mr-2"></i>
+                                    Chat Assistant
+                                </h2>
+                                <p class="text-blue-100 text-sm">
+                                    Context: <span x-text="currentContext" class="font-medium"></span>
+                                    | Confidence: <span x-text="(confidence * 100).toFixed(1) + '%'" class="font-medium"></span>
+                                </p>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <button @click="clearChat()" class="text-white hover:text-blue-200 transition-colors">
+                                    <i class="fas fa-trash text-lg"></i>
+                                </button>
+                                <button @click="exportChat()" class="text-white hover:text-blue-200 transition-colors">
+                                    <i class="fas fa-download text-lg"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Messages Area -->
+                    <div class="h-96 overflow-y-auto p-4 space-y-4" id="messagesContainer">
+                        <!-- Welcome Message -->
+                        <div x-show="messages.length === 0" class="text-center py-8">
+                            <div class="text-6xl text-gray-300 mb-4">
+                                <i class="fas fa-robot"></i>
+                            </div>
+                            <h3 class="text-xl font-semibold text-gray-700 mb-2">Welcome to Advanced Chat!</h3>
+                            <p class="text-gray-500 mb-4">I can help you with:</p>
+                            <div class="grid grid-cols-2 gap-2 max-w-md mx-auto">
+                                <div class="bg-blue-50 p-3 rounded-lg">
+                                    <i class="fas fa-briefcase text-blue-600 mb-1"></i>
+                                    <div class="text-sm font-medium">Job Management</div>
+                                </div>
+                                <div class="bg-green-50 p-3 rounded-lg">
+                                    <i class="fas fa-users text-green-600 mb-1"></i>
+                                    <div class="text-sm font-medium">Candidates</div>
+                                </div>
+                                <div class="bg-purple-50 p-3 rounded-lg">
+                                    <i class="fas fa-calendar text-purple-600 mb-1"></i>
+                                    <div class="text-sm font-medium">Interviews</div>
+                                </div>
+                                <div class="bg-orange-50 p-3 rounded-lg">
+                                    <i class="fas fa-chart-bar text-orange-600 mb-1"></i>
+                                    <div class="text-sm font-medium">Analytics</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Chat Messages -->
+                        <template x-for="(message, index) in messages" :key="index">
+                            <div class="chat-message">
+                                <!-- User Message -->
+                                <div x-show="message.type === 'user'" class="flex justify-end mb-4">
+                                    <div class="bg-blue-600 text-white rounded-lg px-4 py-2 max-w-xs lg:max-w-md">
+                                        <p x-text="message.content"></p>
+                                        <div class="text-xs text-blue-100 mt-1" x-text="message.timestamp"></div>
+                                    </div>
+                                </div>
+
+                                <!-- Assistant Message -->
+                                <div x-show="message.type === 'assistant'" class="flex justify-start mb-4">
+                                    <div class="bg-gray-100 text-gray-800 rounded-lg px-4 py-2 max-w-xs lg:max-w-md">
+                                        <div class="flex items-start space-x-2">
+                                            <i class="fas fa-robot text-blue-600 mt-1"></i>
+                                            <div class="flex-1">
+                                                <p x-html="formatMessage(message.content)"></p>
+                                                
+                                                <!-- Context and Intent Tags -->
+                                                <div x-show="message.metadata" class="flex flex-wrap gap-1 mt-2">
+                                                    <span x-show="message.context" 
+                                                          class="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full"
+                                                          x-text="'Context: ' + message.context"></span>
+                                                    <span x-show="message.intent" 
+                                                          class="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full"
+                                                          x-text="'Intent: ' + message.intent"></span>
+                                                    <span x-show="message.response_type" 
+                                                          class="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded-full"
+                                                          x-text="'Type: ' + message.response_type"></span>
+                                                </div>
+
+                                                <!-- Executed Actions -->
+                                                <div x-show="message.executed_actions && message.executed_actions.length > 0" class="mt-2">
+                                                    <div class="text-xs text-gray-600 mb-1">Actions Executed:</div>
+                                                    <template x-for="action in message.executed_actions">
+                                                        <div class="bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-xs mb-1">
+                                                            <i class="fas fa-cog text-yellow-600 mr-1"></i>
+                                                            <span x-text="action.type || action.description || 'Action executed'"></span>
+                                                        </div>
+                                                    </template>
+                                                </div>
+
+                                                <div class="text-xs text-gray-500 mt-1" x-text="message.timestamp"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- Typing Indicator -->
+                        <div x-show="isTyping" class="flex justify-start mb-4">
+                            <div class="bg-gray-100 rounded-lg px-4 py-3 flex items-center space-x-2">
+                                <i class="fas fa-robot text-blue-600"></i>
+                                <div class="flex space-x-1">
+                                    <div class="typing-indicator"></div>
+                                    <div class="typing-indicator"></div>
+                                    <div class="typing-indicator"></div>
+                                </div>
+                                <span class="text-gray-500 text-sm">Assistant is thinking...</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Suggestions Bar -->
+                    <div x-show="suggestions.length > 0" class="border-t p-4">
+                        <div class="text-sm text-gray-600 mb-2">
+                            <i class="fas fa-lightbulb text-yellow-500 mr-1"></i>
+                            Suggestions:
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <template x-for="suggestion in suggestions.slice(0, 4)">
+                                <button @click="sendMessage(suggestion)"
+                                        class="suggestion-chip bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm">
+                                    <span x-text="suggestion"></span>
+                                </button>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- Input Area -->
+                    <div class="border-t p-4">
+                        <div class="flex space-x-4">
+                            <div class="flex-1">
+                                <input type="text" 
+                                       x-model="currentMessage" 
+                                       @keyup.enter="sendMessage()"
+                                       placeholder="Type your message here..." 
+                                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                       :disabled="isTyping">
+                            </div>
+                            <button @click="sendMessage()" 
+                                    :disabled="isTyping || !currentMessage.trim()"
+                                    class="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-6 py-2 rounded-lg transition-colors">
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="space-y-6">
+                <!-- Quick Actions -->
+                <div class="bg-white rounded-lg shadow p-4">
+                    <h3 class="font-semibold text-gray-800 mb-3">
+                        <i class="fas fa-bolt text-yellow-500 mr-2"></i>
+                        Quick Actions
+                    </h3>
+                    <div class="space-y-2">
+                        <button @click="sendMessage('Show me all jobs')" 
+                                class="w-full text-left px-3 py-2 text-sm bg-gray-50 hover:bg-gray-100 rounded transition-colors">
+                            <i class="fas fa-briefcase mr-2 text-blue-600"></i>
+                            View Jobs
+                        </button>
+                        <button @click="sendMessage('Show me candidates')" 
+                                class="w-full text-left px-3 py-2 text-sm bg-gray-50 hover:bg-gray-100 rounded transition-colors">
+                            <i class="fas fa-users mr-2 text-green-600"></i>
+                            View Candidates
+                        </button>
+                        <button @click="sendMessage('Shortlist candidates for software engineer')" 
+                                class="w-full text-left px-3 py-2 text-sm bg-gray-50 hover:bg-gray-100 rounded transition-colors">
+                            <i class="fas fa-star mr-2 text-purple-600"></i>
+                            Shortlist Process
+                        </button>
+                        <button @click="sendMessage('Schedule interviews')" 
+                                class="w-full text-left px-3 py-2 text-sm bg-gray-50 hover:bg-gray-100 rounded transition-colors">
+                            <i class="fas fa-calendar mr-2 text-orange-600"></i>
+                            Schedule Interviews
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Context Information -->
+                <div class="bg-white rounded-lg shadow p-4">
+                    <h3 class="font-semibold text-gray-800 mb-3">
+                        <i class="fas fa-info-circle text-blue-500 mr-2"></i>
+                        Context Info
+                    </h3>
+                    <div class="space-y-2 text-sm">
+                        <div>
+                            <span class="text-gray-600">Session ID:</span>
+                            <code class="text-xs bg-gray-100 px-1 rounded" x-text="sessionId.substring(0, 8) + '...'"></code>
+                        </div>
+                        <div>
+                            <span class="text-gray-600">Context:</span>
+                            <span class="font-medium" x-text="currentContext"></span>
+                        </div>
+                        <div>
+                            <span class="text-gray-600">Messages:</span>
+                            <span class="font-medium" x-text="messages.length"></span>
+                        </div>
+                        <div>
+                            <span class="text-gray-600">Last Response:</span>
+                            <span class="font-medium" x-text="lastResponseTime || 'None'"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Features -->
+                <div class="bg-white rounded-lg shadow p-4">
+                    <h3 class="font-semibold text-gray-800 mb-3">
+                        <i class="fas fa-star text-yellow-500 mr-2"></i>
+                        Features
+                    </h3>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex items-center">
+                            <i class="fas fa-check text-green-500 mr-2"></i>
+                            Multi-contextual conversations
+                        </div>
+                        <div class="flex items-center">
+                            <i class="fas fa-check text-green-500 mr-2"></i>
+                            Intent recognition
+                        </div>
+                        <div class="flex items-center">
+                            <i class="fas fa-check text-green-500 mr-2"></i>
+                            Specialized agents
+                        </div>
+                        <div class="flex items-center">
+                            <i class="fas fa-check text-green-500 mr-2"></i>
+                            Database queries
+                        </div>
+                        <div class="flex items-center">
+                            <i class="fas fa-check text-green-500 mr-2"></i>
+                            Professional responses
+                        </div>
+                        <div class="flex items-center">
+                            <i class="fas fa-check text-green-500 mr-2"></i>
+                            Error handling
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Example Queries -->
+                <div class="bg-white rounded-lg shadow p-4">
+                    <h3 class="font-semibold text-gray-800 mb-3">
+                        <i class="fas fa-question-circle text-indigo-500 mr-2"></i>
+                        Try These
+                    </h3>
+                    <div class="space-y-2">
+                        <button @click="sendMessage('Create a software engineer job with 3 years experience')" 
+                                class="w-full text-left px-2 py-1 text-xs bg-indigo-50 hover:bg-indigo-100 rounded transition-colors text-indigo-700">
+                            Create a job posting
+                        </button>
+                        <button @click="sendMessage('Run end-to-end process for developer role')" 
+                                class="w-full text-left px-2 py-1 text-xs bg-purple-50 hover:bg-purple-100 rounded transition-colors text-purple-700">
+                            End-to-end hiring
+                        </button>
+                        <button @click="sendMessage('Show me interview statistics')" 
+                                class="w-full text-left px-2 py-1 text-xs bg-orange-50 hover:bg-orange-100 rounded transition-colors text-orange-700">
+                            Analytics request
+                        </button>
+                        <button @click="sendMessage('Help me understand the system')" 
+                                class="w-full text-left px-2 py-1 text-xs bg-green-50 hover:bg-green-100 rounded transition-colors text-green-700">
+                            Get help
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function chatbotApp() {
+            return {
+                messages: [],
+                currentMessage: '',
+                isTyping: false,
+                sessionId: '',
+                currentContext: 'general',
+                confidence: 0.0,
+                suggestions: [],
+                lastResponseTime: null,
+
+                init() {
+                    this.sessionId = this.generateSessionId();
+                    this.startConversation();
+                },
+
+                generateSessionId() {
+                    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                        return v.toString(16);
+                    });
+                },
+
+                async startConversation() {
+                    try {
+                        const response = await fetch('/chat/advanced/conversation/start', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            }
+                        });
+
+                        if (response.ok) {
+                            const data = await response.json();
+                            this.sessionId = data.conversation_id;
+                            this.addMessage('assistant', data.message, {
+                                context: data.context,
+                                suggestions: data.suggestions
+                            });
+                            this.suggestions = data.suggestions || [];
+                        }
+                    } catch (error) {
+                        console.error('Error starting conversation:', error);
+                    }
+                },
+
+                async sendMessage(message = null) {
+                    const messageText = message || this.currentMessage.trim();
+                    if (!messageText) return;
+
+                    // Add user message
+                    this.addMessage('user', messageText);
+                    
+                    if (!message) {
+                        this.currentMessage = '';
+                    }
+                    
+                    this.isTyping = true;
+                    this.scrollToBottom();
+
+                    try {
+                        const response = await fetch('/chat/advanced/query', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                message: messageText,
+                                sessionId: this.sessionId
+                            })
+                        });
+
+                        if (response.ok) {
+                            const data = await response.json();
+                            
+                            // Update context and confidence
+                            this.currentContext = data.context || 'general';
+                            this.confidence = data.confidence || 0.0;
+                            this.suggestions = data.suggestions || [];
+                            this.lastResponseTime = new Date().toLocaleTimeString();
+
+                            // Add assistant message
+                            this.addMessage('assistant', data.message, {
+                                context: data.context,
+                                intent: data.intent,
+                                response_type: data.response_type,
+                                executed_actions: data.executed_actions,
+                                metadata: data.metadata
+                            });
+                        } else {
+                            this.addMessage('assistant', 'Sorry, I encountered an error. Please try again.');
+                        }
+                    } catch (error) {
+                        console.error('Error sending message:', error);
+                        this.addMessage('assistant', 'Sorry, I encountered a network error. Please try again.');
+                    } finally {
+                        this.isTyping = false;
+                        this.scrollToBottom();
+                    }
+                },
+
+                addMessage(type, content, metadata = {}) {
+                    this.messages.push({
+                        type,
+                        content,
+                        timestamp: new Date().toLocaleTimeString(),
+                        ...metadata
+                    });
+                    this.$nextTick(() => this.scrollToBottom());
+                },
+
+                formatMessage(content) {
+                    // Basic markdown-like formatting
+                    return content
+                        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                        .replace(/\n/g, '<br>');
+                },
+
+                clearChat() {
+                    if (confirm('Are you sure you want to clear the chat?')) {
+                        this.messages = [];
+                        this.suggestions = [];
+                        this.currentContext = 'general';
+                        this.confidence = 0.0;
+                        this.startConversation();
+                    }
+                },
+
+                exportChat() {
+                    const chatData = {
+                        sessionId: this.sessionId,
+                        messages: this.messages,
+                        context: this.currentContext,
+                        timestamp: new Date().toISOString()
+                    };
+                    
+                    const blob = new Blob([JSON.stringify(chatData, null, 2)], {
+                        type: 'application/json'
+                    });
+                    
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `chat-export-${this.sessionId.substring(0, 8)}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                },
+
+                scrollToBottom() {
+                    this.$nextTick(() => {
+                        const container = document.getElementById('messagesContainer');
+                        container.scrollTop = container.scrollHeight;
+                    });
+                }
+            }
+        }
+    </script>
+</body>
+</html>

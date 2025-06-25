@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from firebase_admin import get_app
 import socketio
 
-from app.api import job_routes, calendar_routes, auth_routes, candidate_routes, interview_routes, response_routes, final_selection_routes, chatbot_routes, agent_routes, shortlist_routes, reschedule_routes, langgraph_routes, resume_routes, integration_routes, specialized_routes, firebase_query_routes
+from app.api import job_routes, calendar_routes, auth_routes, candidate_routes, interview_routes, response_routes, final_selection_routes, chatbot_routes, advanced_chatbot_routes, agent_routes, shortlist_routes, reschedule_routes, langgraph_routes, resume_routes, integration_routes, specialized_routes, firebase_query_routes
 from app.agents.interview_agent import InterviewAgentSystem, create_interview_crew
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -51,6 +51,7 @@ app.include_router(interview_routes.router)
 app.include_router(response_routes.router)
 app.include_router(final_selection_routes.router)
 app.include_router(chatbot_routes.router)
+app.include_router(advanced_chatbot_routes.router)
 app.include_router(agent_routes.router)
 app.include_router(shortlist_routes.router)
 app.include_router(reschedule_routes.router)
@@ -77,6 +78,11 @@ def root():
 def chatbot_demo():
     """Serve the chatbot demo page"""
     return FileResponse("app/static/chatbot_demo.html")
+
+@app.get("/advanced-chatbot")
+def advanced_chatbot_demo():
+    """Serve the advanced multi-contextual chatbot demo page"""
+    return FileResponse("app/static/advanced_chatbot_demo.html")
 
 @app.get("/agent")
 def agent_interface():
@@ -173,6 +179,6 @@ if __name__ == "__main__":
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
-        port=int(os.getenv("PORT", 8000)),
+        port=int(os.getenv("PORT", 5000)),
         reload=True,
     )

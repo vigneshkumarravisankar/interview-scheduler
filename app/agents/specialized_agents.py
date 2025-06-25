@@ -19,8 +19,10 @@ import uuid
 
 # CrewAI imports
 from crewai import Agent, Task, Crew, Process
-from crewai.tools import BaseTool
-from langchain.chat_models import ChatOpenAI
+from crewai.tools import tool
+
+# Use direct OpenAI for LLM instead of deprecated LangChain
+import openai
 
 # Service imports
 from app.services.candidate_service import CandidateService
@@ -41,271 +43,199 @@ if not OPENAI_API_KEY:
     # Default key from project setup
     OPENAI_API_KEY = "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"
 
-# Initialize LLM model for CrewAI
-llm = ChatOpenAI(
-    openai_api_key=OPENAI_API_KEY,
-    model_name="gpt-4o",
-    temperature=0.2
-)
+# Create a simple LLM wrapper to avoid compatibility issues
+class SimpleLLM:
+    def __init__(self, api_key, model="gpt-4o", temperature=0.2):
+        self.api_key = api_key
+        self.model = model
+        self.temperature = temperature
+
+# Initialize simple LLM
+llm = SimpleLLM(api_key=OPENAI_API_KEY)
 
 #-----------------------
 # Shortlisting Agent Tools
 #-----------------------
-class FindJobByRoleTool(BaseTool):
-    name: str = "FindJobByRole"
-    description: str = "Find a job by its role name in the jobs collection"
-    
-    def _run(self, role_name: str) -> str:
-        """Find a job by role name"""
-        try:
-            # Validate role name is not empty
-            if not role_name or role_name.strip() == "":
-                return "ERROR: You must provide a specific job role name. Empty role names are not allowed."
-            
-            # Query the jobs collection for a job with this role name
-            print(f"Executing FindJobByRole tool with role_name='{role_name}'")
-            jobs = FirestoreDB.execute_query("jobs", "job_role_name", "==", role_name)
-            
-            if not jobs or len(jobs) == 0:
-                return f"No jobs found with role name '{role_name}'. Please provide a valid role name that exists in the system."
-            
-            result = f"Found {len(jobs)} jobs matching role '{role_name}':\n\n"
-            
-            for i, job in enumerate(jobs):
-                # Format job info
-                result += f"Job {i+1}:\n"
-                result += f"ID: {job.get('id', job.get('job_id', 'Unknown'))}\n"
-                result += f"Role: {job.get('job_role_name', 'Unknown')}\n"
-                result += f"Description: {job.get('job_description', 'No description')[:100]}...\n"
-                result += f"Experience Required: {job.get('years_of_experience_needed', 'Unknown')}\n\n"
-            
-            return result
-        except Exception as e:
-            return f"Error finding jobs: {str(e)}"
 
-class GetCandidatesTool(BaseTool):
-    name: str = "GetCandidates"
-    description: str = "Get all candidates for a specific job"
-    
-    def _run(self, job_id: str) -> str:
-        """Get all candidates for a job ID"""
-        try:
-            # First verify the job exists
-            job = JobService.get_job_posting(job_id)
-            if not job:
-                return f"Job with ID {job_id} not found in jobs collection"
-                
-            # Then get candidates
-            candidates = CandidateService.get_candidates_by_job_id(job_id)
-            
-            if not candidates:
-                return f"No candidates found for job {job_id}"
-            
-            result = f"Found {len(candidates)} candidates for job {job_id}:\n\n"
-            
-            for i, candidate in enumerate(candidates):
-                # Format candidate info
-                result += f"Candidate {i+1}:\n"
-                result += f"Name: {candidate.name}\n"
-                result += f"Email: {candidate.email}\n"
-                result += f"Experience: {candidate.total_experience_in_years} years\n"
-                result += f"Skills: {candidate.technical_skills}\n"
-                result += f"AI Fit Score: {candidate.ai_fit_score}\n\n"
-            
-            return result
-        except Exception as e:
-            return f"Error getting candidates: {str(e)}"
+@tool("FindJobByRole")
+def find_job_by_role(role_name: str) -> str:
+    """Find a job by its role name in the jobs collection"""
+    try:
+        # Validate role name is not empty
+        if not role_name or role_name.strip() == "":
+            return "ERROR: You must provide a specific job role name. Empty role names are not allowed."
+        
+        # Query the jobs collection for a job with this role name
+        print(f"Executing FindJobByRole tool with role_name='{role_name}'")
+        jobs = FirestoreDB.execute_query("jobs", "job_role_name", "==", role_name)
+        
+        if not jobs or len(jobs) == 0:
+            return f"No jobs found with role name '{role_name}'. Please provide a valid role name that exists in the system."
+        
+        result = f"Found {len(jobs)} jobs matching role '{role_name}':\n\n"
+        
+        for i, job in enumerate(jobs):
+            # Format job info
+            result += f"Job {i+1}:\n"
+            result += f"ID: {job.get('id', job.get('job_id', 'Unknown'))}\n"
+            result += f"Role: {job.get('job_role_name', 'Unknown')}\n"
+            result += f"Description: {job.get('job_description', 'No description')[:100]}...\n"
+            result += f"Experience Required: {job.get('years_of_experience_needed', 'Unknown')}\n\n"
+        
+        return result
+    except Exception as e:
+        return f"Error finding jobs: {str(e)}"
 
-class ShortlistCandidatesByRoleTool(BaseTool):
-    name: str = "ShortlistCandidatesByRole"
-    description: str = "Find a job by role name, then shortlist top candidates based on AI fit score"
-    
-    def _run(self, role_name: str, number_of_candidates: int = 2) -> str:
-        """Find job by role name then shortlist candidates"""
-        try:
-            # Validate role name is not empty
-            if not role_name or role_name.strip() == "":
-                return "ERROR: You must provide a specific job role name. Empty role names are not allowed."
-                
-            # First find the job by role name
-            print(f"Searching for jobs with exact role name: '{role_name}'")
-            jobs = FirestoreDB.execute_query("jobs", "job_role_name", "==", role_name)
+@tool("GetCandidates")
+def get_candidates(job_id: str) -> str:
+    """Get all candidates for a specific job"""
+    try:
+        # First verify the job exists
+        job = JobService.get_job_posting(job_id)
+        if not job:
+            return f"Job with ID {job_id} not found in jobs collection"
             
-            if not jobs or len(jobs) == 0:
-                return f"No jobs found with role name '{role_name}'. Please provide an exact job role name that exists in the system."
-            
-            # Take the first matching job
-            job = jobs[0]
-            job_id = job.get('id', job.get('job_id'))
-            
-            if not job_id:
-                return f"Error: Found job but couldn't determine job_id"
-            
-            # Now shortlist candidates for this job
-            return self._shortlist_candidates(job_id, number_of_candidates)
-        except Exception as e:
-            return f"Error in shortlisting by role: {str(e)}"
-            
-    def _shortlist_candidates(self, job_id: str, number_of_candidates: int = 2) -> str:
-        """Helper method to shortlist candidates for a job ID"""
-        try:
-            # Verify the job exists
-            job = JobService.get_job_posting(job_id)
-            if not job:
-                return f"Job with ID {job_id} not found in jobs collection"
-                
-            # Get candidates for this job
-            candidates = CandidateService.get_candidates_by_job_id(job_id)
-            
-            if not candidates:
-                return f"No candidates found for job {job_id}"
-            
-            # Sort candidates by AI fit score (descending)
-            try:
-                sorted_candidates = sorted(
-                    candidates,
-                    key=lambda c: int(c.ai_fit_score),
-                    reverse=True
-                )
-            except (ValueError, TypeError) as e:
-                return f"Error sorting candidates: {str(e)}"
-            
-            # Take top N
-            shortlisted = sorted_candidates[:min(number_of_candidates, len(sorted_candidates))]
-            
-            result = f"Shortlisted {len(shortlisted)} candidates out of {len(candidates)} for job {job_id}:\n\n"
-            
-            for i, candidate in enumerate(shortlisted):
-                # Format candidate info
-                result += f"Candidate {i+1}:\n"
-                result += f"Name: {candidate.name}\n"
-                result += f"Email: {candidate.email}\n"
-                result += f"Experience: {candidate.total_experience_in_years} years\n"
-                result += f"Skills: {candidate.technical_skills}\n"
-                result += f"AI Fit Score: {candidate.ai_fit_score}\n\n"
-            
-            # Create interview candidate records directly in interview_candidates collection
-            for candidate in shortlisted:
-                # Create feedback array based on standard round types (modified per user requirement)
-                feedback_array = []
-                
-                # Create the interview candidate record
-                interview_candidate = {
-                    "job_id": job_id,
-                    "candidate_id": candidate.id,
-                    "candidate_name": candidate.name,
-                    "candidate_email": candidate.email,
-                    "job_role": job.job_role_name,
-                    "no_of_interviews": 2,  # Default to 2 rounds
-                    "feedback": feedback_array,
-                    "completedRounds": 0,
-                    "nextRoundIndex": 0,
-                    "status": "shortlisted",
-                    "last_updated": datetime.now().isoformat(),
-                    "created_at": datetime.now().isoformat(),
-                    "current_round_scheduled": False
-                }
-                
-                # Save to database
-                doc_id = InterviewCoreService.create_interview_candidate(interview_candidate)
-                result += f"Created interview record with ID: {doc_id}\n"
-            
-            return result
-        except Exception as e:
-            return f"Error shortlisting candidates: {str(e)}"
+        # Then get candidates
+        candidates = CandidateService.get_candidates_by_job_id(job_id)
+        
+        if not candidates:
+            return f"No candidates found for job {job_id}"
+        
+        result = f"Found {len(candidates)} candidates for job {job_id}:\n\n"
+        
+        for i, candidate in enumerate(candidates):
+            # Format candidate info
+            result += f"Candidate {i+1}:\n"
+            result += f"Name: {candidate.name}\n"
+            result += f"Email: {candidate.email}\n"
+            result += f"Experience: {candidate.total_experience_in_years} years\n"
+            result += f"Skills: {candidate.technical_skills}\n"
+            result += f"AI Fit Score: {candidate.ai_fit_score}\n\n"
+        
+        return result
+    except Exception as e:
+        return f"Error getting candidates: {str(e)}"
 
-class ShortlistCandidatesTool(BaseTool):
-    name: str = "ShortlistCandidates"
-    description: str = "Shortlist top N candidates for a job based on AI fit score"
-    
-    def _run(self, job_id: str, number_of_candidates: int = 2) -> str:
-        """Shortlist top candidates for a job ID"""
-        try:
-            # Verify the job exists
-            job = JobService.get_job_posting(job_id)
-            if not job:
-                return f"Job with ID {job_id} not found in jobs collection"
-                
-            # Get candidates for this job
-            candidates = CandidateService.get_candidates_by_job_id(job_id)
+@tool("ShortlistCandidatesByRole")
+def shortlist_candidates_by_role(role_name: str, number_of_candidates: int = 2) -> str:
+    """Find a job by role name, then shortlist top candidates based on AI fit score"""
+    try:
+        # Validate role name is not empty
+        if not role_name or role_name.strip() == "":
+            return "ERROR: You must provide a specific job role name. Empty role names are not allowed."
             
-            if not candidates:
-                return f"No candidates found for job {job_id}"
-            
-            # Sort candidates by AI fit score (descending)
-            try:
-                sorted_candidates = sorted(
-                    candidates,
-                    key=lambda c: int(c.ai_fit_score),
-                    reverse=True
-                )
-            except (ValueError, TypeError) as e:
-                return f"Error sorting candidates: {str(e)}"
-            
-            # Take top N
-            shortlisted = sorted_candidates[:min(number_of_candidates, len(sorted_candidates))]
-            
-            result = f"Shortlisted {len(shortlisted)} candidates out of {len(candidates)} for job {job_id}:\n\n"
-            
-            for i, candidate in enumerate(shortlisted):
-                # Format candidate info
-                result += f"Candidate {i+1}:\n"
-                result += f"Name: {candidate.name}\n"
-                result += f"Email: {candidate.email}\n"
-                result += f"Experience: {candidate.total_experience_in_years} years\n"
-                result += f"Skills: {candidate.technical_skills}\n"
-                result += f"AI Fit Score: {candidate.ai_fit_score}\n\n"
-            
-            # Create interview candidate records directly in interview_candidates collection
-            for candidate in shortlisted:
-                # Create feedback array based on standard round types (modified per user requirement)
-                feedback_array = []
-                
-                # Create the interview candidate record
-                interview_candidate = {
-                    "job_id": job_id,
-                    "candidate_id": candidate.id,
-                    "candidate_name": candidate.name,
-                    "candidate_email": candidate.email,
-                    "job_role": job.job_role_name,
-                    "no_of_interviews": 2,  # Default to 2 rounds
-                    "feedback": feedback_array,
-                    "completedRounds": 0,
-                    "nextRoundIndex": 0,
-                    "status": "shortlisted",
-                    "last_updated": datetime.now().isoformat(),
-                    "created_at": datetime.now().isoformat(),
-                    "current_round_scheduled": False
-                }
-                
-                # Save to database
-                doc_id = InterviewCoreService.create_interview_candidate(interview_candidate)
-                result += f"Created interview record with ID: {doc_id}\n"
-            
-            return result
-        except Exception as e:
-            return f"Error shortlisting candidates: {str(e)}"
+        # First find the job by role name
+        print(f"Searching for jobs with exact role name: '{role_name}'")
+        jobs = FirestoreDB.execute_query("jobs", "job_role_name", "==", role_name)
+        
+        if not jobs or len(jobs) == 0:
+            return f"No jobs found with role name '{role_name}'. Please provide an exact job role name that exists in the system."
+        
+        # Take the first matching job
+        job = jobs[0]
+        job_id = job.get('id', job.get('job_id'))
+        
+        if not job_id:
+            return f"Error: Found job but couldn't determine job_id"
+        
+        # Now shortlist candidates for this job
+        return _shortlist_candidates_helper(job_id, number_of_candidates)
+    except Exception as e:
+        return f"Error in shortlisting by role: {str(e)}"
 
-class GetJobDetailsTool(BaseTool):
-    name: str = "GetJobDetails"
-    description: str = "Get job details for a specific job ID"
-    
-    def _run(self, job_id: str) -> str:
-        """Get job details for a job ID"""
+@tool("ShortlistCandidates")
+def shortlist_candidates(job_id: str, number_of_candidates: int = 2) -> str:
+    """Shortlist top N candidates for a job based on AI fit score"""
+    try:
+        return _shortlist_candidates_helper(job_id, number_of_candidates)
+    except Exception as e:
+        return f"Error shortlisting candidates: {str(e)}"
+
+def _shortlist_candidates_helper(job_id: str, number_of_candidates: int = 2) -> str:
+    """Helper function to shortlist candidates for a job ID"""
+    try:
+        # Verify the job exists
+        job = JobService.get_job_posting(job_id)
+        if not job:
+            return f"Job with ID {job_id} not found in jobs collection"
+            
+        # Get candidates for this job
+        candidates = CandidateService.get_candidates_by_job_id(job_id)
+        
+        if not candidates:
+            return f"No candidates found for job {job_id}"
+        
+        # Sort candidates by AI fit score (descending)
         try:
-            job = JobService.get_job_posting(job_id)
+            sorted_candidates = sorted(
+                candidates,
+                key=lambda c: int(c.ai_fit_score),
+                reverse=True
+            )
+        except (ValueError, TypeError) as e:
+            return f"Error sorting candidates: {str(e)}"
+        
+        # Take top N
+        shortlisted = sorted_candidates[:min(number_of_candidates, len(sorted_candidates))]
+        
+        result = f"Shortlisted {len(shortlisted)} candidates out of {len(candidates)} for job {job_id}:\n\n"
+        
+        for i, candidate in enumerate(shortlisted):
+            # Format candidate info
+            result += f"Candidate {i+1}:\n"
+            result += f"Name: {candidate.name}\n"
+            result += f"Email: {candidate.email}\n"
+            result += f"Experience: {candidate.total_experience_in_years} years\n"
+            result += f"Skills: {candidate.technical_skills}\n"
+            result += f"AI Fit Score: {candidate.ai_fit_score}\n\n"
+        
+        # Create interview candidate records directly in interview_candidates collection
+        for candidate in shortlisted:
+            # Create feedback array based on standard round types (modified per user requirement)
+            feedback_array = []
             
-            if not job:
-                return f"Job with ID {job_id} not found"
+            # Create the interview candidate record
+            interview_candidate = {
+                "job_id": job_id,
+                "candidate_id": candidate.id,
+                "candidate_name": candidate.name,
+                "candidate_email": candidate.email,
+                "job_role": job.job_role_name,
+                "no_of_interviews": 2,  # Default to 2 rounds
+                "feedback": feedback_array,
+                "completedRounds": 0,
+                "nextRoundIndex": 0,
+                "status": "shortlisted",
+                "last_updated": datetime.now().isoformat(),
+                "created_at": datetime.now().isoformat(),
+                "current_round_scheduled": False
+            }
             
-            result = f"Job details for {job_id}:\n\n"
-            result += f"Role: {job.job_role_name}\n"
-            result += f"Description: {job.job_description}\n"
-            result += f"Experience Required: {job.years_of_experience_needed} years\n"
-            
-            return result
-        except Exception as e:
-            return f"Error getting job details: {str(e)}"
+            # Save to database
+            doc_id = InterviewCoreService.create_interview_candidate(interview_candidate)
+            result += f"Created interview record with ID: {doc_id}\n"
+        
+        return result
+    except Exception as e:
+        return f"Error shortlisting candidates: {str(e)}"
+
+@tool("GetJobDetails")
+def get_job_details(job_id: str) -> str:
+    """Get job details for a specific job ID"""
+    try:
+        job = JobService.get_job_posting(job_id)
+        
+        if not job:
+            return f"Job with ID {job_id} not found"
+        
+        result = f"Job details for {job_id}:\n\n"
+        result += f"Role: {job.job_role_name}\n"
+        result += f"Description: {job.job_description}\n"
+        result += f"Experience Required: {job.years_of_experience_needed} years\n"
+        
+        return result
+    except Exception as e:
+        return f"Error getting job details: {str(e)}"
 
 #-----------------------
 # Scheduling Agent Tools
@@ -317,11 +247,11 @@ from typing import List, Dict, Any, Optional
 import random
 import string
 
-class ScheduleInterviewTool(BaseTool):
-    name: str = "ScheduleInterview"
-    description: str = "Schedule an interview for a shortlisted candidate with automatic calendar availability checking"
+@tool("ScheduleInterview")
+def schedule_interview(job_id: str, candidate_id: str, interview_date: str = None, number_of_rounds: int = 2) -> str:
+    """Schedule an interview for a shortlisted candidate with automatic calendar availability checking"""
     
-    def generate_time_slots(self, start_time_str, end_time_str, slot_duration_minutes=30):
+    def generate_time_slots(start_time_str, end_time_str, slot_duration_minutes=30):
         """Generate time slots within a time range"""
         if isinstance(start_time_str, str):
             start_dt = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
@@ -343,7 +273,7 @@ class ScheduleInterviewTool(BaseTool):
             
         return slots
     
-    def get_busy_slots(self, email, start_time, end_time):
+    def get_busy_slots(email, start_time, end_time):
         """Get busy time slots for an email address"""
         try:
             # Using CalendarService to find busy slots
@@ -378,7 +308,7 @@ class ScheduleInterviewTool(BaseTool):
             print(f"Error getting busy slots: {e}")
             return []
     
-    def compute_bitmasks(self, busy_times_list, time_slots):
+    def compute_bitmasks(busy_times_list, time_slots):
         """Compute availability bitmasks based on busy times"""
         bitmasks = []
         
@@ -410,7 +340,7 @@ class ScheduleInterviewTool(BaseTool):
             
         return bitmasks
     
-    def secure_bitmask_intersection(self, bitmasks):
+    def secure_bitmask_intersection(bitmasks):
         """Find common available slots using bitmask intersection"""
         length = len(bitmasks[0])
         intersection = [1] * length
@@ -419,9 +349,7 @@ class ScheduleInterviewTool(BaseTool):
                 intersection[i] = intersection[i] & mask[i]
         return intersection
     
-    def _run(self, job_id: str, candidate_id: str, interview_date: str = None, number_of_rounds: int = 2) -> str:
-        """Schedule an interview with smart calendar checking to find available slots"""
-        try:
+    try:
             # Get candidate details
             candidate = CandidateService.get_candidate(candidate_id)
             if not candidate:
@@ -487,24 +415,24 @@ class ScheduleInterviewTool(BaseTool):
             
             # Generate 30-minute time slots for the day
             print(f"⏰ Generating time slots from {start_window} to {end_window}")
-            time_slots = self.generate_time_slots(start_window, end_window, 30)
+            time_slots = generate_time_slots(start_window, end_window, 30)
             
             # Get busy slots for all interviewers and candidate
             busy_times = []
             for email in interviewer_emails:
-                busy = self.get_busy_slots(email, start_window, end_window)
+                busy = get_busy_slots(email, start_window, end_window)
                 busy_times.append(busy)
                 
             # Add candidate busy times if available
-            candidate_busy = self.get_busy_slots(candidate.email, start_window, end_window)
+            candidate_busy = get_busy_slots(candidate.email, start_window, end_window)
             if candidate_busy:
                 busy_times.append(candidate_busy)
             
             # Compute availability bitmasks
-            interviewer_masks = self.compute_bitmasks(busy_times, time_slots)
+            interviewer_masks = compute_bitmasks(busy_times, time_slots)
             
             # Find common available slots
-            common_slots = self.secure_bitmask_intersection(interviewer_masks)
+            common_slots = secure_bitmask_intersection(interviewer_masks)
             
             # Find first available slot
             chosen_slot_index = -1
@@ -713,53 +641,50 @@ class ScheduleInterviewTool(BaseTool):
             result += f"Total rounds: {number_of_rounds}\n"
             
             return result
-        except Exception as e:
-            return f"Error scheduling interview: {str(e)}"
+    except Exception as e:
+        return f"Error scheduling interview: {str(e)}"
 
-class GetShortlistedCandidatesTool(BaseTool):
-    name: str = "GetShortlistedCandidates"
-    description: str = "Get shortlisted candidates for a job"
-    
-    def _run(self, job_id: str) -> str:
-        """Get shortlisted candidates for a job ID"""
-        try:
-            # First try to get from specialized collection
-            shortlisted = FirestoreDB.execute_query("shortlisted_candidates", "job_id", "==", job_id)
+@tool("GetShortlistedCandidates")
+def get_shortlisted_candidates(job_id: str) -> str:
+    """Get shortlisted candidates for a job"""
+    try:
+        # First try to get from specialized collection
+        shortlisted = FirestoreDB.execute_query("shortlisted_candidates", "job_id", "==", job_id)
+        
+        if not shortlisted:
+            # Fall back to sorting candidates by AI fit score
+            candidates = CandidateService.get_candidates_by_job_id(job_id)
+            if not candidates:
+                return f"No candidates found for job {job_id}"
             
-            if not shortlisted:
-                # Fall back to sorting candidates by AI fit score
-                candidates = CandidateService.get_candidates_by_job_id(job_id)
-                if not candidates:
-                    return f"No candidates found for job {job_id}"
-                
-                # Sort by AI fit score
-                try:
-                    sorted_candidates = sorted(
-                        candidates,
-                        key=lambda c: int(c.ai_fit_score),
-                        reverse=True
-                    )
-                    # Take top 2 by default
-                    shortlisted = sorted_candidates[:min(2, len(sorted_candidates))]
-                except (ValueError, TypeError) as e:
-                    return f"Error sorting candidates: {str(e)}"
+            # Sort by AI fit score
+            try:
+                sorted_candidates = sorted(
+                    candidates,
+                    key=lambda c: int(c.ai_fit_score),
+                    reverse=True
+                )
+                # Take top 2 by default
+                shortlisted = sorted_candidates[:min(2, len(sorted_candidates))]
+            except (ValueError, TypeError) as e:
+                return f"Error sorting candidates: {str(e)}"
+        
+        result = f"Shortlisted candidates for job {job_id}:\n\n"
+        
+        for i, candidate in enumerate(shortlisted):
+            # Format candidate info (handle both dict and object formats)
+            name = candidate.get('name', candidate.name if hasattr(candidate, 'name') else 'Unknown')
+            email = candidate.get('email', candidate.email if hasattr(candidate, 'email') else 'Unknown')
+            candidate_id = candidate.get('candidate_id', candidate.id if hasattr(candidate, 'id') else 'Unknown')
             
-            result = f"Shortlisted candidates for job {job_id}:\n\n"
-            
-            for i, candidate in enumerate(shortlisted):
-                # Format candidate info (handle both dict and object formats)
-                name = candidate.get('name', candidate.name if hasattr(candidate, 'name') else 'Unknown')
-                email = candidate.get('email', candidate.email if hasattr(candidate, 'email') else 'Unknown')
-                candidate_id = candidate.get('candidate_id', candidate.id if hasattr(candidate, 'id') else 'Unknown')
-                
-                result += f"Candidate {i+1}:\n"
-                result += f"ID: {candidate_id}\n"
-                result += f"Name: {name}\n"
-                result += f"Email: {email}\n\n"
-            
-            return result
-        except Exception as e:
-            return f"Error getting shortlisted candidates: {str(e)}"
+            result += f"Candidate {i+1}:\n"
+            result += f"ID: {candidate_id}\n"
+            result += f"Name: {name}\n"
+            result += f"Email: {email}\n\n"
+        
+        return result
+    except Exception as e:
+        return f"Error getting shortlisted candidates: {str(e)}"
 
 
 #-----------------------
@@ -784,11 +709,11 @@ shortlisting_agent = Agent(
     allow_delegation=True,
     llm=llm,
     tools=[
-        FindJobByRoleTool(),
-        GetCandidatesTool(),
-        ShortlistCandidatesTool(),
-        ShortlistCandidatesByRoleTool(),
-        GetJobDetailsTool()
+        find_job_by_role,
+        get_candidates,
+        shortlist_candidates,
+        shortlist_candidates_by_role,
+        get_job_details
     ]
 )
 
@@ -801,9 +726,9 @@ scheduling_agent = Agent(
     allow_delegation=True,
     llm=llm,
     tools=[
-        GetShortlistedCandidatesTool(),
-        ScheduleInterviewTool(),
-        GetJobDetailsTool()
+        get_shortlisted_candidates,
+        schedule_interview,
+        get_job_details
     ]
 )
 
