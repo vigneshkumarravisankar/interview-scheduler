@@ -30,8 +30,8 @@ class AgentQueryRequest(BaseModel):
     """
     query: str = Field(..., description="User query to process")
     session_id: Optional[str] = Field(None, description="Session ID for conversation context")
-    agent_system_type: AgentSystemType = Field(default=AgentSystemType.CREW_AI, 
-                                           description="Type of agent system to use (crew_ai or langgraph)")
+    agent_system_type: str = Field(default="crew_ai", 
+                                   description="Type of agent system to use (crew_ai or langgraph)")
     job_data: Optional[Dict[str, Any]] = Field(default=None, 
                                            description="Job data needed for LangGraph processing")
     candidate_data: Optional[Dict[str, Any]] = Field(default=None, 

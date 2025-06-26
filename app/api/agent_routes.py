@@ -49,7 +49,12 @@ async def process_agent_query(request: AgentQueryRequest):
         session_id = request.session_id or str(uuid.uuid4())
         
         # Select the appropriate agent system
-        if request.agent_system_type == AgentSystemType.CREW_AI:
+        agent_type_str = request.agent_system_type or "crew_ai"
+        print(f"DEBUG: agent_system_type = {agent_type_str}")
+        print(f"DEBUG: agent_system_type type = {type(agent_type_str)}")
+        
+        # Use simple string comparison
+        if agent_type_str == "crew_ai":
             agent_system = get_agent_system()
             # Process the query with CrewAI
             result = agent_system.process_query(request.query, session_id)
@@ -75,6 +80,8 @@ async def process_agent_query(request: AgentQueryRequest):
         
         return response
     except Exception as e:
+        import traceback
+        print(f"Full error traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
 
 @sio.event

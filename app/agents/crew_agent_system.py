@@ -168,18 +168,23 @@ class CreateJobPostingTool(BaseTool):
     # Set the argument schema
     args_schema = InputSchema
     
-    def _run(self, job_details: str) -> str:
+    def _run(self, job_details) -> str:
         """
         Create a job posting from the provided details
         
         Args:
             job_details: Can be either a string or a dict with description field
         """
-        # Convert to string if dictionary is passed
-        if isinstance(job_details, dict) and 'description' in job_details:
-            job_details = job_details['description']
+        # Handle different input types from CrewAI
+        if isinstance(job_details, dict):
+            if 'description' in job_details:
+                job_details = job_details['description']
+            else:
+                # If it's a dict but no description field, convert the whole dict to string
+                job_details = str(job_details)
         elif not isinstance(job_details, str):
-            return "Error: Invalid job details format. Please provide either a string or a dictionary with a 'description' field."
+            # Convert any other type to string
+            job_details = str(job_details)
         
         try:
             # Use the LLM to format job details properly
@@ -749,7 +754,8 @@ class CrewAgentSystem:
                    self.interview_planner, self.scheduler],
             tasks=[],  # Tasks will be created dynamically
             verbose=True,  # Changed from 2 to True to fix validation error
-            process=Process.sequential
+            process=Process.sequential,
+            memory=False  # Disable memory to avoid ChromaDB issues
         )
     
     def process_query(self, query: str, session_id: str) -> Dict[str, Any]:
@@ -1041,7 +1047,7 @@ class CrewAgentSystem:
             tasks=[task],
             verbose=True,
             process=Process.sequential,
-            memory=True
+            memory=False  # Disable memory to avoid ChromaDB issues
         )
         
         try:
@@ -1581,7 +1587,7 @@ class CrewAgentSystem:
             tasks=[task],
             verbose=True,  # Changed from 2 to True to fix validation error
             process=Process.sequential,
-            memory=True
+            memory=False  # Disable memory to avoid ChromaDB issues
         )
         
         try:

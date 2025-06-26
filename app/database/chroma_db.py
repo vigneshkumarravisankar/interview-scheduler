@@ -543,13 +543,19 @@ class FirestoreDB:
     # Map all static methods to ChromaVectorDB
     collection_exists = ChromaVectorDB.collection_exists
     create_document = ChromaVectorDB.create_document
-    create_document_with_id = ChromaVectorDB.create_document_with_id
     get_document = ChromaVectorDB.get_document
     get_all_documents = ChromaVectorDB.get_all_documents
     update_document = ChromaVectorDB.update_document
     delete_document = ChromaVectorDB.delete_document
     execute_query = ChromaVectorDB.execute_query
     execute_complex_query = ChromaVectorDB.execute_complex_query
+    
+    # Static method wrapper for create_document_with_id
+    @staticmethod
+    def create_document_with_id(collection_name: str, doc_id: str, document_data: Dict[str, Any]) -> str:
+        """Create a document with a specific ID - static method wrapper"""
+        instance = ChromaVectorDB()
+        return instance.create_document_with_id(collection_name, doc_id, document_data)
     
     # Direct access to ChromaDB instance
     @staticmethod
