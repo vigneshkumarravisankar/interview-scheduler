@@ -7,3 +7,11 @@ app/config/service_account.json
 app/config/gmail_token.json
 app/config/calendar_service_account.json
 app/working-interview-scheduler/credentials.json
+app/agents/__pycache__
+app/__pycache__
+app/api/__pycache__
+app/config/__pycache__
+app/database/__pycache__
+app/schemas/__pycache__
+app/services/__pycache__
+app/utils/__pycache__
